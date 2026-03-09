@@ -1,5 +1,9 @@
 import numpy as np
-import matplotlib.pyplot as plt# Properties for nucleons and quarks
+import matplotlib.pyplot as plt
+from src.numerical_functions import *
+# Properties for nucleons and quarks
+
+
 g =2; mp = mn = 0.938 #GeV/c**2
 Nc = 3; mu = md = mp/Nc; lam = 0.2 #GeV200;
 rho0 = 1.23e-3  #GeV^3
@@ -20,33 +24,36 @@ def main(isos_repulsion,model):
         print('cs model')
         # -------------------- CS parameters 
         if isos_repulsion == "eq":   
-            an  = 36.9
-            bn  = 577.
-            apn = 1.45 * an   
+            an  = 36.93 #36.9
+            bn  = 579.17 #577.
+            apn = 53.60#1.45 * an   
             bpn = 1.00 * bn   
             print(r'isospin-blind repulsion $b_n = b_{pn}$')
         elif isos_repulsion == "neq":   
-            an  = 26.6
-            bn  = 383.
-            apn = 2.40 * an   
-            bpn = 2.01 * bn   
+            an  = 26.535 #26.6
+            bn  =383.788#383.
+            apn =63.999 #2.40 * an   
+            bpn = 774.64 #2.01 * bn   
             print(r'isospin-dependent repulsion $b_n \neq b_{pn}$') 
     elif model == 'tvm':
         print('tvm model')
         # -------------------- TVM parameters
-        an = 26.4
-        bn = 361 
+
 
         if isos_repulsion == 'eq':
         # bpn = bn
-            apn = 1.43 * an
+            an = 37.33    #26.4
+            bn = 560.08  #361
+            apn = 53.72#1.43 * an
             bpn = 1.0 * bn
             print(r'isospin-blind repulsion $b_n = b_{pn}$')
 
         elif isos_repulsion == 'neq':
         # bpn neq bn
-            apn = 2.44 * an
-            bpn = 2.08 * bn
+            an = 26.78#37.33    #26.4
+            bn = 363.72 #560.08  #361
+            apn = 64.67 #2.44 * an
+            bpn = 756.4 #2.08 * bn
             print(r'isospin-dependent repulsion $b_n \neq b_{pn}$') 
 
 
@@ -289,7 +296,7 @@ def main(isos_repulsion,model):
     plt.show()
     plt.close()
 
-main('eq','tvm')
-main('neq','tvm')
+# main('eq','tvm')
+# main('neq','tvm')
 main('eq','cs')
-main('neq','cs')
+# main('neq','cs')

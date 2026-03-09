@@ -1,34 +1,33 @@
 import numpy as np
-import matplotlib.pyplot as plt# Properties for nucleons and quarks
+import matplotlib.pyplot as plt
+from src.numerical_functions import *
+# Properties for nucleons and quarks
 g =2; mp = mn = 0.938 #GeV/c**2
 Nc = 3; mu = md = mp/Nc; lam = 0.2 #GeV200;
 rho0 = 1.23e-3  #GeV^3
-rhob_list = np.linspace(1e-6, 5.0, 90) * rho0
+rhob_list = np.linspace(1e-6, 5.0, 150) * rho0
 y = 0.1
-fq_list = np.linspace(0.0, 1.0, 90)
+fq_list = np.linspace(0.0, 1.0, 150)
+print(len(fq_list))
 # # -------------------- QvdW parameters 
 def main(isos_repulsion):
     print('qvdw model')
-    if isos_repulsion == "eq":      
+    if isos_repulsion == "eq": 
+        print(r'isospin-blind repulsion $b_n = b_{pn}$')
+    
         an  = 33.3
         bn  = 445.
         apn = 1.57 * an  
         bpn = 1.00 * bn  
-    elif isos_repulsion == "neq":  
+    elif isos_repulsion == "neq": 
+        print(r'isospin-dependent repulsion $b_n \neq b_{pn}$') 
         an  = 24.6
         bn  = 299.
         apn = 2.48 * an  
         bpn = 1.98 * bn  
 
-    # ------------- help-functions 
-    def integrate_simpson(f, a, b, n=1000):
-        h = (b - a) / n
-        s = f(a) + f(b)
-        x = a
-        for i in range(1, n):
-            x += h
-            s += (4.0 if (i % 2) == 1 else 2.0) * f(x)
-        return s * (h / 3.0)
+
+
 
     # Ideal quarks u,d energy density
 
