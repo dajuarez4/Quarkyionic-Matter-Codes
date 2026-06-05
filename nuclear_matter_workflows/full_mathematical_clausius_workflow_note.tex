@@ -1,0 +1,1234 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{booktabs}
+
+\title{Full Mathematical Note on the Symmetric and Asymmetric Clausius Workflow}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document gives a fully mathematical explanation of the Clausius workflow
+used in \texttt{nuclear\_matter\_workflows}. It explains the physics, the
+mathematics, and the numerical logic of both:
+\begin{itemize}
+\item the zero-temperature asymmetric Clausius constraint analysis, where the
+five interaction parameters
+\[
+a_n,\qquad a_{pn},\qquad b_n,\qquad b_{pn},\qquad c
+\]
+are determined;
+\item the finite-temperature fixed-$y$ quantum critical-point solver, which
+uses those five fitted parameters to compute
+\[
+T_c,\qquad n_c,\qquad P_c.
+\]
+\end{itemize}
+
+The note is designed to be didactic. It does not skip algebraic steps, and it
+uses simple physics analogies whenever useful.
+\end{abstract}
+
+\tableofcontents
+
+\section{What Problem Is Being Solved?}
+
+The repository is building an effective equation of state for nuclear matter.
+The workflow is split into two layers.
+
+\begin{enumerate}
+\item First, at zero temperature, the code calibrates the interaction so that
+it reproduces empirical nuclear-matter properties.
+\item Second, at finite temperature, the code uses that calibrated interaction
+to look for the liquid-gas critical point.
+\end{enumerate}
+
+So the logic is:
+\[
+\text{fit the EOS at } T=0
+\quad \Longrightarrow \quad
+\text{use that EOS at } T>0.
+\]
+
+The zero-temperature stage is where the five interaction parameters are found.
+The finite-temperature stage does \emph{not} refit those parameters; it only
+uses them.
+
+\section{The Physical Ingredients of the Model}
+
+The model has three basic physical ingredients.
+
+\subsection{Quantum Kinetic Energy}
+
+Nucleons are fermions. Because of the Pauli principle, even at zero
+temperature they cannot all sit in the same momentum state. Instead, they fill
+a Fermi sphere up to a Fermi momentum $k_F$.
+
+This is the same basic physics as electrons in a metal. Even at $T=0$, the
+system has pressure because the momentum states are filled.
+
+\subsection{Repulsion Through Excluded Volume}
+
+At short distances, nucleons cannot overlap arbitrarily. In an effective
+description, this is represented by reducing the available volume.
+
+An easy analogy is a box full of hard balls. If the balls occupy some volume,
+the remaining free volume is smaller, so the same number of particles behaves
+as if its density were larger.
+
+\subsection{Attraction Through a Mean Field}
+
+Nucleons also attract each other at intermediate range. In a mean-field model,
+this appears as a negative interaction energy that scales roughly like the
+number of interacting pairs, hence like $n^2$.
+
+An easy analogy is a spring network in which every particle feels an average
+pull from the others. The Clausius model modifies this pull by a denominator
+$1+cn$, which makes the attraction soften as density grows.
+
+\section{Step 1: The Zero-Temperature Ideal Fermi Gas}
+
+\subsection{Density and Fermi Momentum}
+
+At $T=0$, all one-particle momentum states are filled up to $k_F$. For a gas
+with degeneracy $d$, the number density is
+\begin{equation}
+n_{\mathrm{id}}
+=
+\frac{d}{(2\pi)^3}\int_{|\mathbf{k}|\le k_F} d^3k
+=
+\frac{d}{2\pi^2}\int_0^{k_F} k^2\,dk
+=
+\frac{d\,k_F^3}{6\pi^2}.
+\end{equation}
+
+Solving for $k_F$ gives
+\begin{equation}
+k_F
+=
+\left(\frac{6\pi^2 n_{\mathrm{id}}}{d}\right)^{1/3}.
+\end{equation}
+
+This is exactly the formula used in the code.
+
+\subsection{Relativistic Single-Particle Energy}
+
+The model uses the relativistic dispersion relation
+\begin{equation}
+E(k)=\sqrt{(\hbar c\,k)^2+m_N^2},
+\end{equation}
+where $m_N$ is the nucleon mass.
+
+\subsection{Ideal Energy Density}
+
+The ideal energy density is
+\begin{equation}
+\epsilon_{\mathrm{id}}
+=
+\frac{d}{(2\pi)^3}\int_{|\mathbf{k}|\le k_F} E(k)\,d^3k
+=
+\frac{d}{2\pi^2}\int_0^{k_F} k^2 E(k)\,dk.
+\end{equation}
+
+\subsection{Ideal Pressure}
+
+The relativistic ideal-gas pressure is
+\begin{equation}
+p_{\mathrm{id}}
+=
+\frac{d}{6\pi^2}\int_0^{k_F}\frac{(\hbar c)^2 k^4}{E(k)}\,dk.
+\end{equation}
+
+These are the quantum kinetic pieces used everywhere else in the workflow.
+
+\subsection{Degeneracy Factors}
+
+Two degeneracy values appear in the code:
+\begin{itemize}
+\item $d=4$ for symmetric nuclear matter, because proton/neutron and spin-up/spin-down
+are all included together;
+\item $d=2$ for a single species sector, when protons and neutrons are treated
+separately.
+\end{itemize}
+
+\section{Step 2: Symmetric Clausius Matter at \texorpdfstring{$T=0$}{T=0}}
+
+\subsection{Excluded-Volume Map}
+
+For symmetric matter, the Clausius model introduces a free-volume factor
+\begin{equation}
+f(n)=1-bn.
+\end{equation}
+
+The physical density is $n$, but because only the fraction $f$ of the volume
+is available, the corresponding ideal-gas density is
+\begin{equation}
+n_{\mathrm{id}}=\frac{n}{f(n)}=\frac{n}{1-bn}.
+\end{equation}
+
+This is exactly the hard-ball analogy: if the available volume is smaller, the
+effective density inside that free volume is larger.
+
+\subsection{Symmetric Clausius Energy Density}
+
+The total energy density is
+\begin{equation}
+\epsilon(n)
+=
+f(n)\,\epsilon_{\mathrm{id}}\!\left(\frac{n}{f(n)}\right)
+-\frac{a n^2}{1+cn}.
+\end{equation}
+
+The first term is the ideal kinetic energy living in the free volume. The
+second term is the attractive mean field.
+
+\subsection{Symmetric Clausius Pressure}
+
+The corresponding pressure is
+\begin{equation}
+P(n)
+=
+p_{\mathrm{id}}\!\left(\frac{n}{1-bn}\right)
+-\frac{a n^2}{(1+cn)^2}.
+\end{equation}
+
+If $c=0$, the attractive part reduces to the simpler van der Waals-like form
+$-a n^2$ in the energy density and $-a n^2$ in the pressure derivative
+structure. The Clausius denominator $1+cn$ is what makes the model more
+flexible.
+
+\section{Step 3: Saturation Constraints in Symmetric Matter}
+
+The code calibrates symmetric matter at the empirical saturation point.
+
+\subsection{The Empirical Inputs}
+
+The default values are
+\begin{align}
+n_0 &= 0.16\ \mathrm{fm}^{-3}, \\
+\left.\frac{E}{A}-m_N\right|_{n_0} &= -16\ \mathrm{MeV}.
+\end{align}
+
+The pressure at saturation must also vanish:
+\begin{equation}
+P(n_0)=0.
+\end{equation}
+
+\subsection{Energy per Particle}
+
+From the energy density, the energy per baryon relative to the nucleon mass is
+\begin{equation}
+\frac{E}{A}-m_N
+=
+\frac{\epsilon(n)}{n}-m_N.
+\end{equation}
+
+\subsection{How \texorpdfstring{$a$}{a} Is Obtained at Fixed \texorpdfstring{$b,c$}{b,c}}
+
+Take the zero-pressure condition at $n=n_0$:
+\begin{equation}
+0
+=
+p_{\mathrm{id}}(n_{\mathrm{id},0})
+-\frac{a n_0^2}{(1+cn_0)^2},
+\end{equation}
+where
+\begin{equation}
+n_{\mathrm{id},0}=\frac{n_0}{1-bn_0}.
+\end{equation}
+
+Solve this algebraically for $a$:
+\begin{equation}
+a
+=
+\frac{p_{\mathrm{id}}(n_{\mathrm{id},0})(1+cn_0)^2}{n_0^2}.
+\end{equation}
+
+This step is important: at fixed $b$ and $c$, the pressure condition determines
+$a$ directly.
+
+\subsection{How \texorpdfstring{$b$}{b} Is Obtained at Fixed \texorpdfstring{$c$}{c}}
+
+Now substitute the above $a(b,c)$ into the binding condition
+\begin{equation}
+\frac{\epsilon(n_0)}{n_0}-m_N=-16\ \mathrm{MeV}.
+\end{equation}
+
+Using
+\begin{equation}
+\epsilon(n_0)
+=
+(1-bn_0)\,\epsilon_{\mathrm{id}}(n_{\mathrm{id},0})
+-\frac{a n_0^2}{1+cn_0},
+\end{equation}
+we get
+\begin{equation}
+\frac{(1-bn_0)\epsilon_{\mathrm{id}}(n_{\mathrm{id},0})}{n_0}
+-\frac{a n_0}{1+cn_0}
+-m_N
+=
+-16\ \mathrm{MeV}.
+\end{equation}
+
+Since $a$ is already known as a function of $b$ and $c$, this becomes a single
+nonlinear equation for $b$ at fixed $c$.
+
+The solver handles it numerically by:
+\begin{enumerate}
+\item scanning a range in $b$;
+\item looking for a sign change in the residual;
+\item applying bisection.
+\end{enumerate}
+
+\subsection{Simple Mechanical Analogy}
+
+This is similar to solving a school-level mechanics problem where one equation
+gives one constant in terms of another, and then a second condition fixes the
+remaining constant.
+
+Here:
+\begin{itemize}
+\item the zero-pressure condition plays the role of the first equation;
+\item the binding-energy condition plays the role of the second equation.
+\end{itemize}
+
+\section{Step 4: Incompressibility and the Common Clausius Parameter \texorpdfstring{$c$}{c}}
+
+\subsection{Definition of \texorpdfstring{$K_0$}{K0}}
+
+The incompressibility is
+\begin{equation}
+K_0
+=
+9\left.\frac{dP}{dn}\right|_{n_0}.
+\end{equation}
+
+Physically, this is the bulk stiffness of symmetric nuclear matter. A simple
+analogy is a spring constant:
+\begin{itemize}
+\item a large $K_0$ means the matter resists compression strongly;
+\item a small $K_0$ means it is softer.
+\end{itemize}
+
+\subsection{How \texorpdfstring{$c$}{c} Is Computed}
+
+For every trial $c$:
+\begin{enumerate}
+\item solve the saturation problem and find $b(c)$;
+\item compute $a(c)$ from the zero-pressure condition;
+\item compute
+\[
+K_0(c)=9\left.\frac{dP}{dn}\right|_{n_0}.
+\]
+\end{enumerate}
+
+Then define the residual
+\begin{equation}
+F_c(c)=K_0(c)-K_0^{\mathrm{target}}.
+\end{equation}
+
+The code scans $c$ over the interval
+\[
+0\le c\le 4.74\ \mathrm{fm}^3,
+\]
+finds a sign change in $F_c(c)$, and uses bisection to obtain the final
+$c$.
+
+\subsection{What Is Fixed After This Step?}
+
+Once $c$ is known, the symmetric problem is fully fixed. The code therefore
+also knows
+\begin{equation}
+a_{\mathrm{avg}}=a(c),\qquad b_{\mathrm{avg}}=b(c).
+\end{equation}
+
+These are called averages because they will become the center of the later
+asymmetric splitting.
+
+\section{Step 5: Asymmetric Clausius Matter}
+
+\subsection{Proton Fraction and Species Densities}
+
+Define the proton fraction
+\begin{equation}
+y=\frac{n_p}{n},
+\end{equation}
+so that
+\begin{equation}
+n_p=yn,\qquad n_n=(1-y)n.
+\end{equation}
+
+Two special cases are central:
+\begin{itemize}
+\item symmetric nuclear matter: $y=0.5$;
+\item pure neutron matter: $y=0$.
+\end{itemize}
+
+\subsection{Species-Dependent Excluded Volume}
+
+The model uses
+\begin{align}
+x_p &= b_n n_p + b_{pn} n_n, \\
+x_n &= b_{pn} n_p + b_n n_n,
+\end{align}
+and therefore
+\begin{align}
+f_p &= 1-x_p, \\
+f_n &= 1-x_n.
+\end{align}
+
+The corresponding ideal densities are
+\begin{align}
+n_{p,\mathrm{id}} &= \frac{n_p}{f_p}, \\
+n_{n,\mathrm{id}} &= \frac{n_n}{f_n}.
+\end{align}
+
+\subsection{Asymmetric Energy Density}
+
+The total energy density is
+\begin{equation}
+\epsilon(n,y)
+=
+f_p\,\epsilon_p^{\mathrm{id}}(n_{p,\mathrm{id}})
++
+f_n\,\epsilon_n^{\mathrm{id}}(n_{n,\mathrm{id}})
+-\frac{a_n(n_p^2+n_n^2)+2a_{pn}n_pn_n}{1+cn}.
+\end{equation}
+
+The meaning of the coefficients is:
+\begin{itemize}
+\item $a_n$: same-species attractive channel;
+\item $a_{pn}$: proton-neutron attractive channel;
+\item $b_n$: same-species excluded-volume channel;
+\item $b_{pn}$: proton-neutron excluded-volume channel;
+\item $c$: common density-softening parameter in the attractive denominator.
+\end{itemize}
+
+\section{Step 6: Why the Split Is Written in Terms of Averages and Differences}
+
+The code writes
+\begin{align}
+a_n &= a_{\mathrm{avg}}-\Delta a, \\
+a_{pn} &= a_{\mathrm{avg}}+\Delta a, \\
+b_n &= b_{\mathrm{avg}}-\Delta b, \\
+b_{pn} &= b_{\mathrm{avg}}+\Delta b.
+\end{align}
+
+This is not just notation. It is chosen so that the model automatically reduces
+to the symmetric fit at $y=0.5$.
+
+\subsection{Proof for the Excluded-Volume Part}
+
+At $y=0.5$,
+\[
+n_p=n_n=\frac{n}{2}.
+\]
+Then
+\begin{align}
+x_p
+&=
+b_n\frac{n}{2}+b_{pn}\frac{n}{2}
+=
+\frac{b_n+b_{pn}}{2}n
+=
+b_{\mathrm{avg}}n, \\
+x_n
+&=
+b_{pn}\frac{n}{2}+b_n\frac{n}{2}
+=
+b_{\mathrm{avg}}n.
+\end{align}
+
+So
+\begin{equation}
+f_p=f_n=1-b_{\mathrm{avg}}n,
+\end{equation}
+which is exactly the symmetric free-volume factor.
+
+\subsection{Proof for the Attractive Part}
+
+At $y=0.5$,
+\[
+n_p=n_n=\frac{n}{2}.
+\]
+Then the attractive numerator becomes
+\begin{align}
+a_n(n_p^2+n_n^2)+2a_{pn}n_pn_n
+&=
+a_n\left(\frac{n^2}{4}+\frac{n^2}{4}\right)
++2a_{pn}\frac{n^2}{4} \\
+&=
+\frac{a_n+a_{pn}}{2}n^2 \\
+&=
+a_{\mathrm{avg}}n^2.
+\end{align}
+
+So the asymmetric model reduces exactly to the symmetric Clausius form.
+
+\section{Step 7: Symmetry Energy, \texorpdfstring{$J$}{J}, and \texorpdfstring{$L$}{L}}
+
+\subsection{Energy Per Particle}
+
+For any density and proton fraction,
+\begin{equation}
+E(n,y)-m_N
+=
+\frac{\epsilon(n,y)}{n}-m_N.
+\end{equation}
+
+\subsection{Parabolic Symmetry-Energy Convention}
+
+The code adopts
+\begin{equation}
+S(n)=E_{\mathrm{PNM}}(n)-E_{\mathrm{SNM}}(n),
+\end{equation}
+where
+\begin{align}
+E_{\mathrm{PNM}}(n) &= E(n,y=0), \\
+E_{\mathrm{SNM}}(n) &= E(n,y=0.5).
+\end{align}
+
+This is called the parabolic convention because in many nuclear-matter
+expansions one writes
+\[
+E(n,\delta)\approx E(n,0)+S(n)\delta^2,
+\]
+with isospin asymmetry $\delta=(n_n-n_p)/n=1-2y$. In that picture,
+$S(n)$ is the coefficient of the quadratic penalty for moving away from the
+symmetric state.
+
+\subsection{The Symmetry Energy at Saturation}
+
+The code imposes
+\begin{equation}
+J=S(n_0)=32.5\ \mathrm{MeV}.
+\end{equation}
+
+Physically, $J$ measures how expensive it is, in energy per particle, to turn
+symmetric matter at saturation into pure neutron matter.
+
+\subsection{The Symmetry Slope}
+
+The slope is defined as
+\begin{equation}
+L
+=
+3n_0\left.\frac{dS}{dn}\right|_{n_0}.
+\end{equation}
+
+The code imposes
+\begin{equation}
+L=58.9\ \mathrm{MeV}.
+\end{equation}
+
+Physically, $L$ tells us how the asymmetry penalty changes as we compress or
+expand matter around saturation density.
+
+\section{Step 8: How Each of the Five Final Parameters Is Computed}
+
+This is the central step of the whole workflow.
+
+\subsection{Parameter 1: \texorpdfstring{$c$}{c}}
+
+Choose a target incompressibility $K_0^{\mathrm{target}}$.
+
+For each trial $c$:
+\begin{enumerate}
+\item solve the symmetric saturation problem;
+\item compute the resulting $K_0(c)$;
+\item solve
+\[
+F_c(c)=K_0(c)-K_0^{\mathrm{target}}=0.
+\]
+\end{enumerate}
+
+The root of that equation is the final $c$.
+
+\subsection{Intermediate Quantities: \texorpdfstring{$a_{\mathrm{avg}}$}{aavg} and \texorpdfstring{$b_{\mathrm{avg}}$}{bavg}}
+
+Once $c$ is fixed:
+\begin{itemize}
+\item $b_{\mathrm{avg}}$ is the solution of the symmetric binding equation;
+\item $a_{\mathrm{avg}}$ is computed from the zero-pressure formula
+\[
+a_{\mathrm{avg}}
+=
+\frac{p_{\mathrm{id}}(n_{\mathrm{id},0})(1+cn_0)^2}{n_0^2},
+\qquad
+n_{\mathrm{id},0}=\frac{n_0}{1-b_{\mathrm{avg}}n_0}.
+\]
+\end{itemize}
+
+These are not part of the final five-parameter list, but they are the center
+from which the final four asymmetric parameters are built.
+
+\subsection{Parameter 2 and Parameter 3: \texorpdfstring{$a_n$}{an} and \texorpdfstring{$a_{pn}$}{apn}}
+
+For a trial $\Delta b$, define
+\begin{equation}
+F_J(\Delta a;\Delta b)
+=
+J(\Delta a,\Delta b)-J_{\mathrm{target}}.
+\end{equation}
+
+The code solves
+\begin{equation}
+F_J(\Delta a;\Delta b)=0
+\end{equation}
+for $\Delta a$.
+
+Once $\Delta a$ is known,
+\begin{align}
+a_n &= a_{\mathrm{avg}}-\Delta a, \\
+a_{pn} &= a_{\mathrm{avg}}+\Delta a.
+\end{align}
+
+So:
+\begin{itemize}
+\item $a_n$ is not solved directly;
+\item $a_{pn}$ is not solved directly;
+\item both come from solving for the auxiliary variable $\Delta a$ through the
+$J$ constraint.
+\end{itemize}
+
+\subsection{Parameter 4 and Parameter 5: \texorpdfstring{$b_n$}{bn} and \texorpdfstring{$b_{pn}$}{bpn}}
+
+Now define
+\begin{equation}
+F_L(\Delta b)
+=
+L\big(\Delta a(\Delta b),\Delta b\big)-L_{\mathrm{target}},
+\end{equation}
+where $\Delta a(\Delta b)$ means that for each trial $\Delta b$, the code
+first solves the $J$ constraint again.
+
+The code then solves
+\begin{equation}
+F_L(\Delta b)=0
+\end{equation}
+for $\Delta b$.
+
+Once $\Delta b$ is known,
+\begin{align}
+b_n &= b_{\mathrm{avg}}-\Delta b, \\
+b_{pn} &= b_{\mathrm{avg}}+\Delta b.
+\end{align}
+
+So:
+\begin{itemize}
+\item $b_n$ is not solved directly;
+\item $b_{pn}$ is not solved directly;
+\item both come from solving for the auxiliary variable $\Delta b$ through the
+$L$ constraint, while $J$ is re-enforced at each trial.
+\end{itemize}
+
+\subsection{The Full Hierarchy in One Box}
+
+The full fitting hierarchy is:
+\begin{align}
+K_0 &\Longrightarrow c, \\
+c &\Longrightarrow (a_{\mathrm{avg}}, b_{\mathrm{avg}}), \\
+J &\Longrightarrow \Delta a, \\
+L &\Longrightarrow \Delta b, \\
+(\Delta a,\Delta b)
+&\Longrightarrow
+(a_n,a_{pn},b_n,b_{pn}).
+\end{align}
+
+That is the cleanest mathematical summary of how the five final parameters are
+obtained.
+
+\section{Step 8A: Worked Zero-Temperature Example for \texorpdfstring{$K_0=280$}{K0=280}}
+
+It is useful to see one concrete fitted case using actual numbers from the
+repository output table.
+
+\subsection{Fitted Symmetric Core}
+
+For the target
+\[
+K_0^{\mathrm{target}}=280\ \mathrm{MeV},
+\]
+the saved fit gives
+\begin{align}
+c &= 4.11410812010825\ \mathrm{fm}^3, \\
+a_{\mathrm{avg}} &= 454.41269746338673\ \mathrm{MeV\ fm}^3, \\
+b_{\mathrm{avg}} &= 1.9364497235562026\ \mathrm{fm}^3.
+\end{align}
+
+At saturation density,
+\[
+n_0=0.16\ \mathrm{fm}^{-3},
+\]
+the symmetric free-volume factor is
+\begin{equation}
+f(n_0)=1-b_{\mathrm{avg}}n_0
+=
+1-(1.9364497235562026)(0.16)
+=
+0.6901680442310076.
+\end{equation}
+
+Therefore the corresponding ideal density is
+\begin{equation}
+n_{\mathrm{id},0}
+=
+\frac{n_0}{f(n_0)}
+=
+\frac{0.16}{0.6901680442310076}
+=
+0.2318275981297767\ \mathrm{fm}^{-3}.
+\end{equation}
+
+The final output then confirms that the fitted symmetric point satisfies
+\begin{align}
+K_0 &= 280.00000000183434\ \mathrm{MeV}, \\
+\left.\frac{E}{A}-m_N\right|_{n_0}
+&=
+-15.999999999746478\ \mathrm{MeV}, \\
+n_{\mathrm{sat}} &= 0.16000002779816316\ \mathrm{fm}^{-3}, \\
+P_{\mathrm{sat}} &= 8.648315237280713\times 10^{-7}\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+So the saturation and incompressibility constraints are being matched to very
+high numerical accuracy.
+
+\subsection{Asymmetric Splits}
+
+The same fitted row gives
+\begin{align}
+\Delta a &= 204.076171451012\ \mathrm{MeV\ fm}^3, \\
+\Delta b &= 0.5190264752342095\ \mathrm{fm}^3.
+\end{align}
+
+Using
+\begin{align}
+a_n &= a_{\mathrm{avg}}-\Delta a, \\
+a_{pn} &= a_{\mathrm{avg}}+\Delta a, \\
+b_n &= b_{\mathrm{avg}}-\Delta b, \\
+b_{pn} &= b_{\mathrm{avg}}+\Delta b,
+\end{align}
+we obtain
+\begin{align}
+a_n
+&=
+454.41269746338673-204.076171451012 \\
+&=
+250.33652601237475\ \mathrm{MeV\ fm}^3, \\
+a_{pn}
+&=
+454.41269746338673+204.076171451012 \\
+&=
+658.4888689143987\ \mathrm{MeV\ fm}^3,
+\end{align}
+and
+\begin{align}
+b_n
+&=
+1.9364497235562026-0.5190264752342095 \\
+&=
+1.417423248321993\ \mathrm{fm}^3, \\
+b_{pn}
+&=
+1.9364497235562026+0.5190264752342095 \\
+&=
+2.455476198790412\ \mathrm{fm}^3.
+\end{align}
+
+\subsection{Consistency Checks}
+
+The split reproduces the averages exactly:
+\begin{align}
+\frac{a_n+a_{pn}}{2}
+&=
+\frac{250.33652601237475+658.4888689143987}{2} \\
+&=
+454.41269746338673
+=
+a_{\mathrm{avg}},
+\end{align}
+and
+\begin{align}
+\frac{b_n+b_{pn}}{2}
+&=
+\frac{1.417423248321993+2.455476198790412}{2} \\
+&=
+1.9364497235562026
+=
+b_{\mathrm{avg}}.
+\end{align}
+
+The same row also satisfies the isovector constraints:
+\begin{align}
+J &= 32.499999996661245\ \mathrm{MeV}, \\
+L &= 58.89999995170001\ \mathrm{MeV}.
+\end{align}
+
+So this one row is a concrete numerical realization of the full chain
+\[
+K_0 \Longrightarrow c \Longrightarrow
+(a_{\mathrm{avg}},b_{\mathrm{avg}})
+\Longrightarrow
+(\Delta a,\Delta b)
+\Longrightarrow
+(a_n,a_{pn},b_n,b_{pn}).
+\]
+
+\section{Step 9: Numerical Methods Used by the Zero-Temperature Solver}
+
+\subsection{Why Scan Plus Bisection?}
+
+The code chooses a robust one-dimensional strategy:
+\begin{itemize}
+\item scan the parameter over a range;
+\item look for a sign change in the residual;
+\item apply bisection.
+\end{itemize}
+
+This is slower than a clever multidimensional Newton solve, but it is safer and
+easier to interpret.
+
+\subsection{Where Derivatives Appear}
+
+Derivatives are used only for physical observables such as
+\begin{equation}
+K_0=9\left.\frac{dP}{dn}\right|_{n_0},
+\qquad
+L=3n_0\left.\frac{dS}{dn}\right|_{n_0},
+\end{equation}
+and are computed numerically with centered finite differences.
+
+\subsection{Saturation Check}
+
+After the symmetric point is solved, the code minimizes
+\[
+\frac{E}{A}-m_N
+\]
+in a density interval around saturation as a consistency check. This yields
+\[
+n_{\mathrm{sat}},\qquad
+\left(\frac{E}{A}-m_N\right)_{\mathrm{sat}},\qquad
+P_{\mathrm{sat}}.
+\]
+
+These are diagnostic outputs that tell us whether the fitted point really sits
+where it should.
+
+\section{Step 10: The Finite-Temperature Quantum Solver}
+
+The second part of the repository uses the fitted five parameters to compute
+the critical point at fixed proton fraction $y$.
+
+\subsection{Finite-Temperature Ideal Fermi Gas}
+
+At nonzero temperature, the sharp Fermi sphere is replaced by the Fermi-Dirac
+occupation factor
+\begin{equation}
+f_{\mathrm{FD}}(E;\mu,T)=\frac{1}{e^{(E-\mu)/T}+1}.
+\end{equation}
+
+Then
+\begin{equation}
+n_{\mathrm{id}}(T,\mu)
+=
+\frac{d}{2\pi^2}\int_0^\infty k^2 f_{\mathrm{FD}}(E;\mu,T)\,dk,
+\end{equation}
+and
+\begin{equation}
+p_{\mathrm{id}}(T,\mu)
+=
+\frac{d}{6\pi^2}\int_0^\infty
+\frac{(\hbar c)^2k^4}{E(k)}f_{\mathrm{FD}}(E;\mu,T)\,dk.
+\end{equation}
+
+This is why the finite-temperature stage is called quantum. It is using Fermi
+statistics rather than a classical Boltzmann gas.
+
+\subsection{Species Target Densities at Fixed \texorpdfstring{$y$}{y}}
+
+For fixed proton fraction $y$:
+\begin{align}
+n_p &= yn, \\
+n_n &= (1-y)n, \\
+f_p &= 1-b_n n_p - b_{pn} n_n, \\
+f_n &= 1-b_{pn} n_p - b_n n_n.
+\end{align}
+
+The ideal target densities are therefore
+\begin{align}
+n_{p,\mathrm{id}}^{\mathrm{target}} &= \frac{n_p}{f_p}, \\
+n_{n,\mathrm{id}}^{\mathrm{target}} &= \frac{n_n}{f_n}.
+\end{align}
+
+\subsection{Inner SCF: Solving for \texorpdfstring{$\mu_p^\ast$}{mu*p} and \texorpdfstring{$\mu_n^\ast$}{mu*n}}
+
+The solver must find effective chemical potentials $\mu_p^\ast$ and
+$\mu_n^\ast$ such that
+\begin{align}
+n_{\mathrm{id}}(T,\mu_p^\ast)
+&=
+n_{p,\mathrm{id}}^{\mathrm{target}}, \\
+n_{\mathrm{id}}(T,\mu_n^\ast)
+&=
+n_{n,\mathrm{id}}^{\mathrm{target}}.
+\end{align}
+
+The code does this with a damped Newton-like iteration.
+
+This is similar to a standard introductory numerical-analysis problem:
+\[
+\text{given } F(x)=0,\ \text{update } x \text{ using the local slope of } F.
+\]
+
+\subsection{Finite-Temperature Pressure Branch}
+
+Once $\mu_p^\ast$ and $\mu_n^\ast$ are found, the total pressure is
+\begin{equation}
+P(T,n;y)
+=
+p_p^{\mathrm{id}}(T,\mu_p^\ast)
++
+p_n^{\mathrm{id}}(T,\mu_n^\ast)
+-\frac{C(y)n^2}{(1+cn)^2},
+\end{equation}
+where
+\begin{equation}
+C(y)
+=
+a_n\big[y^2+(1-y)^2\big]
++2a_{pn}y(1-y).
+\end{equation}
+
+At $y=0.5$, one has
+\begin{equation}
+C(0.5)=a_{\mathrm{avg}},
+\end{equation}
+so the fixed-$y$ solver reduces back to the symmetric Clausius branch.
+
+\subsection{Critical-Point Conditions}
+
+The liquid-gas critical point is defined by the usual inflection-point
+conditions on the isotherm:
+\begin{align}
+\left(\frac{\partial P}{\partial n}\right)_T &= 0, \\
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T &= 0.
+\end{align}
+
+This is the same mathematics as the standard van der Waals critical point. On
+a graph of $P$ versus $n$ at fixed $T$, the critical isotherm is flat enough to
+have zero slope and zero curvature at the critical point.
+
+\subsection{Outer SCF: Solving for \texorpdfstring{$T_c$}{Tc} and \texorpdfstring{$n_c$}{nc}}
+
+The outer solver seeks the pair $(T,n)$ that satisfies the two equations above.
+It proceeds by:
+\begin{enumerate}
+\item scanning a coarse grid in $(T,n)$;
+\item selecting a good seed;
+\item updating $T$ and $n$ with damped slope-based corrections;
+\item accepting only trial steps that reduce the residual score.
+\end{enumerate}
+
+So the finite-temperature code has two nested loops:
+\begin{itemize}
+\item an inner loop for $\mu_p^\ast$ and $\mu_n^\ast$;
+\item an outer loop for $(T_c,n_c)$.
+\end{itemize}
+
+\section{Step 10A: Worked Fixed-\texorpdfstring{$y$}{y} Example for \texorpdfstring{$K_0=280$}{K0=280}}
+
+Now take the same fitted interaction and follow it into the finite-temperature
+solver.
+
+\subsection{Symmetric Check at \texorpdfstring{$y=0.5$}{y=0.5}}
+
+For the $K_0=280$ row, the finite-temperature solver returns at $y=0.5$
+\begin{align}
+T_c &= 16.4817165975974\ \mathrm{MeV}, \\
+n_c &= 0.0520814359187431\ \mathrm{fm}^{-3}, \\
+P_c &= 0.261959538318564\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+At this point,
+\[
+n_p=n_n=\frac{n_c}{2}.
+\]
+Using the fitted excluded-volume parameters,
+\begin{align}
+x_p
+&=
+b_n\frac{n_c}{2}+b_{pn}\frac{n_c}{2}
+=
+\frac{b_n+b_{pn}}{2}n_c \\
+&=
+b_{\mathrm{avg}}n_c
+=
+0.10085308218726015,
+\end{align}
+and similarly
+\[
+x_n=0.10085308218726015.
+\]
+Hence
+\[
+f_p=f_n=1-0.10085308218726015=0.8991469178127398.
+\]
+
+For the attractive coefficient,
+\begin{align}
+C(0.5)
+&=
+a_n\left[\left(\frac12\right)^2+\left(\frac12\right)^2\right]
++2a_{pn}\left(\frac12\right)\left(\frac12\right) \\
+&=
+\frac{a_n+a_{pn}}{2}
+=
+a_{\mathrm{avg}}
+=
+454.41269746338673\ \mathrm{MeV\ fm}^3.
+\end{align}
+
+So the fixed-$y$ formulas reduce exactly to the symmetric Clausius formulas,
+as they should.
+
+\subsection{Asymmetric Example at \texorpdfstring{$y=0.3$}{y=0.3}}
+
+For the same $K_0=280$ interaction, the finite-temperature solver gives at
+$y=0.3$
+\begin{align}
+T_c &= 14.063530458374572\ \mathrm{MeV}, \\
+n_c &= 0.048943415460203074\ \mathrm{fm}^{-3}, \\
+P_c &= 0.2110688843825943\ \mathrm{MeV\ fm}^{-3}, \\
+\mu_p^\ast &= 934.7468901046402\ \mathrm{MeV}, \\
+\mu_n^\ast &= 950.2022651752985\ \mathrm{MeV}.
+\end{align}
+
+Now compute the proton and neutron densities:
+\begin{align}
+n_p &= yn_c = (0.3)(0.048943415460203074)
+= 0.014683024638060921\ \mathrm{fm}^{-3}, \\
+n_n &= (1-y)n_c = (0.7)(0.048943415460203074)
+= 0.03426039082214215\ \mathrm{fm}^{-3}.
+\end{align}
+
+Then
+\begin{align}
+x_p
+&=
+b_n n_p + b_{pn} n_n \\
+&=
+(1.417423248321993)(0.014683024638060921)
++(2.455476198790412)(0.03426039082214215) \\
+&=
+0.10493763470269968,
+\end{align}
+while
+\begin{align}
+x_n
+&=
+b_{pn} n_p + b_n n_n \\
+&=
+(2.455476198790412)(0.014683024638060921)
++(1.417423248321993)(0.03426039082214215) \\
+&=
+0.08461529197291352.
+\end{align}
+
+Therefore
+\begin{align}
+f_p &= 1-x_p = 0.8950623652973003, \\
+f_n &= 1-x_n = 0.9153847080270865.
+\end{align}
+
+The corresponding ideal target densities are
+\begin{align}
+n_{p,\mathrm{id}}^{\mathrm{target}}
+&=
+\frac{n_p}{f_p}
+=
+\frac{0.014683024638060921}{0.8950623652973003} \\
+&=
+0.016404471026087514\ \mathrm{fm}^{-3},
+\end{align}
+and
+\begin{align}
+n_{n,\mathrm{id}}^{\mathrm{target}}
+&=
+\frac{n_n}{f_n}
+=
+\frac{0.03426039082214215}{0.9153847080270865} \\
+&=
+0.03742731391699016\ \mathrm{fm}^{-3}.
+\end{align}
+
+\subsection{Effective Attractive Coefficient at \texorpdfstring{$y=0.3$}{y=0.3}}
+
+The fixed-$y$ attractive coefficient is
+\begin{align}
+C(y)
+&=
+a_n\big[y^2+(1-y)^2\big]+2a_{pn}y(1-y).
+\end{align}
+
+At $y=0.3$,
+\begin{align}
+y^2+(1-y)^2 &= 0.3^2+0.7^2 = 0.58, \\
+2y(1-y) &= 2(0.3)(0.7) = 0.42.
+\end{align}
+Hence
+\begin{align}
+C(0.3)
+&=
+(250.33652601237475)(0.58)
++(658.4888689143987)(0.42) \\
+&=
+421.76051003122484\ \mathrm{MeV\ fm}^3.
+\end{align}
+
+The interaction pressure contribution at the critical density is therefore
+\begin{align}
+P_{\mathrm{int}}
+&=
+-\frac{C(0.3)n_c^2}{(1+cn_c)^2} \\
+&=
+-\frac{(421.76051003122484)(0.048943415460203074)^2}
+{\big(1+(4.11410812010825)(0.048943415460203074)\big)^2} \\
+&=
+-0.7000179980681587\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+Since the full pressure is
+\[
+P_c=0.2110688843825943\ \mathrm{MeV\ fm}^{-3},
+\]
+the proton-plus-neutron ideal pressures together must contribute
+\begin{align}
+p_p^{\mathrm{id}}+p_n^{\mathrm{id}}
+&=
+P_c-P_{\mathrm{int}} \\
+&=
+0.2110688843825943-(-0.7000179980681587) \\
+&=
+0.911086882450753\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+This is a useful physical interpretation:
+\begin{itemize}
+\item the quantum ideal-gas sectors provide positive pressure;
+\item the mean-field attraction provides a sizable negative contribution;
+\item the final critical pressure is the small positive remainder after these
+pieces compete.
+\end{itemize}
+
+\section{A Few Simple Physics Examples}
+
+\subsection{Example 1: Why the Pair Term Looks Like \texorpdfstring{$n^2$}{n2}}
+
+Suppose each particle can interact with all others in an average way. If there
+are $N$ particles, the number of pairs is proportional to $N^2$. Dividing by
+volume squared gives a density-squared scaling. This is why the attraction term
+has the form
+\[
+\text{interaction energy density} \sim -a n^2.
+\]
+
+\subsection{Example 2: Why Excluded Volume Increases the Ideal Density}
+
+Take a box of total volume $V$ containing particles whose cores occupy a volume
+$V_{\mathrm{occ}}$. The free volume is
+\[
+V_{\mathrm{free}}=V-V_{\mathrm{occ}}.
+\]
+If the particle number is $N$, then the density inside the available volume is
+\[
+\frac{N}{V_{\mathrm{free}}}
+\]
+rather than
+\[
+\frac{N}{V}.
+\]
+That is exactly the logic behind
+\[
+n_{\mathrm{id}}=\frac{n}{1-bn}.
+\]
+
+\subsection{Example 3: Why \texorpdfstring{$J$}{J} and \texorpdfstring{$L$}{L} Need Two Different Splits}
+
+Think of $J$ as the \emph{height} of an energy penalty at one special density
+$n_0$, and think of $L$ as the \emph{slope} of that penalty there.
+
+One number is not enough to independently control both a value and a slope.
+That is why the code uses two splitting directions:
+\begin{itemize}
+\item $\Delta a$ mainly tunes the size of the asymmetry energy;
+\item $\Delta b$ then adjusts how that asymmetry energy changes with density.
+\end{itemize}
+
+\section{Final Summary}
+
+The workflow can be summarized as follows.
+
+\begin{enumerate}
+\item Build the relativistic ideal Fermi gas.
+\item Add excluded-volume repulsion and Clausius attraction.
+\item In symmetric matter, impose
+\[
+P(n_0)=0,\qquad
+\left.\frac{E}{A}-m_N\right|_{n_0}=-16\ \mathrm{MeV}
+\]
+to solve $a$ and $b$ at fixed $c$.
+\item Compute
+\[
+K_0=9\left.\frac{dP}{dn}\right|_{n_0}
+\]
+and use the target $K_0$ to determine $c$.
+\item Rename the resulting symmetric parameters as
+\[
+a_{\mathrm{avg}},\qquad b_{\mathrm{avg}}.
+\]
+\item Introduce the asymmetric splitting
+\[
+a_n=a_{\mathrm{avg}}-\Delta a,\qquad
+a_{pn}=a_{\mathrm{avg}}+\Delta a,
+\]
+\[
+b_n=b_{\mathrm{avg}}-\Delta b,\qquad
+b_{pn}=b_{\mathrm{avg}}+\Delta b.
+\]
+\item Solve $\Delta a$ from
+\[
+J=S(n_0)=32.5\ \mathrm{MeV}.
+\]
+\item Solve $\Delta b$ from
+\[
+L=3n_0\left.\frac{dS}{dn}\right|_{n_0}=58.9\ \mathrm{MeV},
+\]
+while re-enforcing the $J$ constraint at every trial.
+\item The final five fitted interaction parameters are then
+\[
+a_n,\qquad a_{pn},\qquad b_n,\qquad b_{pn},\qquad c.
+\]
+\item Use those five parameters in the finite-temperature fixed-$y$ quantum
+solver to determine
+\[
+T_c,\qquad n_c,\qquad P_c
+\]
+from
+\[
+\left(\frac{\partial P}{\partial n}\right)_T=0,
+\qquad
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T=0.
+\]
+\end{enumerate}
+
+That is the complete mathematical logic of the repository's Clausius workflow.
+
+\end{document}

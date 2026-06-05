@@ -1,0 +1,509 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{booktabs}
+
+\title{Technical Description of the Fixed-\texorpdfstring{$y$}{y} Quantum Critical-Point Solver}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document explains, in plain technical English, what the finite-temperature
+fixed-composition solver does in the \texttt{nuclear\_matter\_workflows}
+repository, how the code is organized, and where the self-consistent-field
+(SCF) iterations appear. The main target is the code in
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/finite\_temperature.py},
+which computes the critical temperature $T_c$ and critical density $n_c$ for
+asymmetric Clausius nuclear matter at fixed proton fraction $y$, using quantum
+Fermi statistics. The document also points to the lower-level Fermi-gas module
+used by this solver and to the generic SCF implementation on which the
+fixed-$y$ version is modeled.
+\end{abstract}
+
+\section{Purpose of the Code}
+
+The code solves a finite-temperature critical-point problem for asymmetric
+nuclear matter with fixed proton fraction $y$. For a given interaction fit
+(parameters $a_n$, $a_{pn}$, $b_n$, $b_{pn}$, and $c$), it searches for the
+point $(T,n)$ at which the pressure satisfies the criticality conditions
+\begin{align}
+\left(\frac{\partial P}{\partial n}\right)_T &= 0, \\
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T &= 0.
+\end{align}
+
+The output of the solver is therefore the set
+\[
+(T_c, n_c, P_c),
+\]
+together with diagnostics such as the residual derivatives, the number of
+iterations, and the effective chemical potentials for protons and neutrons.
+
+The finite-temperature part is quantum mechanical because it does not use a
+classical Boltzmann gas. Instead, it uses Fermi-Dirac occupation factors and
+evaluates the ideal-gas number density and pressure numerically from momentum
+integrals.
+
+\section{Relevant Files}
+
+The main files involved in this workflow are listed in
+Table~\ref{tab:files}.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.42\textwidth} >{\raggedright\arraybackslash}p{0.48\textwidth}}
+\toprule
+File & Role \\
+\midrule
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/finite\_temperature.py} & Fixed-$y$ finite-temperature critical-point solver and wrappers. \\
+\texttt{quantum\_tc\_nc\_scf/src/quantum\_tc\_nc\_scf/quantum\_fermi.py} & Numerical evaluation of ideal Fermi-gas density and pressure. \\
+\texttt{quantum\_tc\_nc\_scf/src/quantum\_tc\_nc\_scf/constants.py} & Physical constants and solver settings. \\
+\texttt{quantum\_tc\_nc\_scf/src/quantum\_tc\_nc\_scf/utils/numerics.py} & Low-level numerical utilities such as \texttt{linspace} and Simpson weights. \\
+\texttt{quantum\_tc\_nc\_scf/src/quantum\_tc\_nc\_scf/scf.py} & Generic symmetric-matter SCF solver; useful as a reference because the fixed-$y$ solver mirrors its structure. \\
+\bottomrule
+\end{tabular}
+\caption{Core files used by the fixed-$y$ quantum critical-point workflow.}
+\label{tab:files}
+\end{table}
+
+\section{High-Level Workflow}
+
+At a high level, the solver proceeds as follows:
+
+\begin{enumerate}
+\item Read one fitted parameter set from the asymmetric Clausius fit table.
+\item Fix the proton fraction $y$.
+\item For any trial pair $(T,n)$, construct the corresponding proton and neutron
+ideal-gas target densities after excluded-volume corrections.
+\item Invert those target densities to effective chemical potentials
+$\mu_p^\ast$ and $\mu_n^\ast$ using an inner iterative solver.
+\item Use the resulting $\mu_p^\ast$ and $\mu_n^\ast$ to compute the total
+pressure $P(T,n;y)$.
+\item Approximate $\partial P/\partial n$ and $\partial^2 P/\partial n^2$
+numerically.
+\item Adjust $(T,n)$ with an outer damped iteration until both criticality
+conditions are satisfied.
+\end{enumerate}
+
+This means that the code has two nested numerical loops:
+
+\begin{itemize}
+\item an \emph{inner} loop that solves for $\mu_p^\ast$ and $\mu_n^\ast$ at
+fixed $(T,n)$;
+\item an \emph{outer} loop that solves for $(T_c,n_c)$.
+\end{itemize}
+
+\section{Data Structures and Helper Functions}
+
+\subsection{\texttt{FixedYCriticalPoint}}
+
+The dataclass \texttt{FixedYCriticalPoint} is a container for the final result.
+It stores:
+\begin{itemize}
+\item the thermodynamic critical point $T_c$, $n_c$, and $P_c$;
+\item the residual derivatives at the final point;
+\item the convergence score and iteration count;
+\item the final effective chemical potentials $\mu_p^\ast$ and $\mu_n^\ast$;
+\item the fitted interaction parameters that generated the solution.
+\end{itemize}
+
+This object is purely organizational. It does not perform any physics or
+numerics by itself.
+
+\subsection{\texttt{\_clamp}}
+
+The helper \texttt{\_clamp(value, lower, upper)} restricts a numerical update to
+a safe interval. It is used to prevent the iterative solver from stepping into
+unphysical or numerically unstable parameter regions.
+
+\subsection{\texttt{\_attractive\_coefficient}}
+
+The helper
+\[
+\texttt{\_attractive\_coefficient}(y, a_n, a_{pn})
+\]
+computes the effective attractive coupling at fixed proton fraction $y$:
+\begin{equation}
+a_{\text{eff}}(y)
+= a_n\left[y^2 + (1-y)^2\right] + 2 a_{pn} y (1-y).
+\end{equation}
+
+This is the coefficient that enters the interaction pressure term.
+
+\subsection{\texttt{\_species\_data}}
+
+The helper \texttt{\_species\_data(n, y, b\_n, b\_{pn})} converts the total
+baryon density $n$ and proton fraction $y$ into species-specific quantities:
+\begin{align}
+n_p &= yn, \\
+n_n &= (1-y)n.
+\end{align}
+
+It then builds excluded-volume combinations
+\begin{align}
+x_p &= b_n n_p + b_{pn} n_n, \\
+x_n &= b_{pn} n_p + b_n n_n,
+\end{align}
+followed by free-volume factors
+\begin{align}
+f_p &= 1 - x_p, \\
+f_n &= 1 - x_n.
+\end{align}
+
+If either $f_p \le 0$ or $f_n \le 0$, the state is rejected as unphysical.
+Otherwise, the code defines target ideal-gas densities
+\begin{align}
+n_{p,\mathrm{id}}^{\mathrm{target}} &= \frac{n_p}{f_p}, \\
+n_{n,\mathrm{id}}^{\mathrm{target}} &= \frac{n_n}{f_n}.
+\end{align}
+
+These target densities are the quantities that the inner SCF loop must match.
+
+\section{The Quantum Fermi-Gas Module}
+
+The file \texttt{quantum\_fermi.py} defines the class
+\texttt{QuantumFermiGas}. This class is responsible for evaluating the ideal
+finite-temperature number density and pressure of a relativistic Fermi gas.
+
+\subsection{Momentum Grid and Numerical Integration}
+
+When a \texttt{QuantumFermiGas} object is created, it precomputes:
+\begin{itemize}
+\item a momentum grid $k$;
+\item Simpson integration weights;
+\item the single-particle energy
+\[
+E(k) = \sqrt{(\hbar c\, k)^2 + m^2};
+\]
+\item the momentum-dependent factors needed for density and pressure
+integrals.
+\end{itemize}
+
+The integration grid is produced by \texttt{simpson\_weights} from
+\texttt{utils/numerics.py}. The reason for this precomputation is efficiency:
+the same quadrature grid is reused many times during the iterative solution.
+
+\subsection{Fermi-Dirac Occupation}
+
+The occupation factor is
+\begin{equation}
+f(E;\mu,T) = \frac{1}{e^{(E-\mu)/T} + 1},
+\end{equation}
+with overflow protection for very large positive or negative arguments.
+
+\subsection{Ideal Density and Pressure}
+
+The code numerically evaluates
+\begin{align}
+n_{\mathrm{id}}(T,\mu) &=
+\frac{d}{2\pi^2} \int_0^{k_{\max}} k^2 f(E;\mu,T)\, dk, \\
+p_{\mathrm{id}}(T,\mu) &=
+\frac{d}{6\pi^2} \int_0^{k_{\max}}
+\frac{(\hbar c)^2 k^4}{E(k)} f(E;\mu,T)\, dk,
+\end{align}
+where $d$ is the degeneracy factor.
+
+In the fixed-$y$ solver, the settings are modified so that each species uses
+$d=2$ rather than $d=4$. This is because the proton and neutron sectors are
+treated separately.
+
+\subsection{Initial Guess for \texorpdfstring{$\mu^\ast$}{mu*}}
+
+The method \texttt{mu\_seed\_from\_n\_id} provides a zero-temperature estimate
+for the effective chemical potential. It computes a Fermi momentum from the
+target ideal density and then returns the corresponding relativistic Fermi
+energy:
+\begin{align}
+k_F &= \left(\frac{6\pi^2 n_{\mathrm{id}}}{d}\right)^{1/3}, \\
+\mu_{\text{seed}} &= \sqrt{(\hbar c\, k_F)^2 + m^2}.
+\end{align}
+
+This serves as the starting point for the inner iterative inversion.
+
+\section{Pressure Evaluator for Fixed Composition}
+
+The class \texttt{FixedYAsymmetricClausiusPressureEvaluator} is the central
+object in the fixed-$y$ workflow.
+
+\subsection{Initialization}
+
+The constructor receives the interaction parameters
+\[
+a_n,\quad a_{pn},\quad b_n,\quad b_{pn},\quad c,
+\]
+the fixed proton fraction $y$, and a settings object. It creates two
+\texttt{QuantumFermiGas} instances:
+\begin{itemize}
+\item one for protons;
+\item one for neutrons.
+\end{itemize}
+
+It also creates a cache keyed by $(T,n)$ so that repeated calls to the same
+thermodynamic point do not recompute the pressure.
+
+\subsection{Target Ideal Densities}
+
+The method \texttt{target\_n\_id(n)} calls \texttt{\_species\_data} and returns
+the pair
+\[
+\left(n_{p,\mathrm{id}}^{\mathrm{target}},\;
+n_{n,\mathrm{id}}^{\mathrm{target}}\right).
+\]
+
+This is the information needed to perform the inversion from density to
+effective chemical potential.
+
+\section{Where the SCF Appears}
+
+This is the most important conceptual point. The code contains \emph{two}
+different SCF layers.
+
+\subsection{Inner SCF: Solving for \texorpdfstring{$\mu_p^\ast$}{mu*p} and \texorpdfstring{$\mu_n^\ast$}{mu*n}}
+
+The inner SCF appears in the method
+\texttt{\_solve\_mu\_star\_species}. For a fixed temperature $T$ and a fixed
+target ideal density $n_{\mathrm{id}}^{\mathrm{target}}$, the code solves
+\begin{equation}
+F(\mu^\ast) =
+n_{\mathrm{id}}(T,\mu^\ast) - n_{\mathrm{id}}^{\mathrm{target}} = 0.
+\end{equation}
+
+The loop starts from the zero-temperature seed and then repeatedly:
+\begin{enumerate}
+\item evaluates the residual
+\[
+r = n_{\mathrm{id}}(T,\mu) - n_{\mathrm{id}}^{\mathrm{target}};
+\]
+\item estimates the derivative numerically,
+\begin{equation}
+\chi \approx
+\frac{n_{\mathrm{id}}(T,\mu+\delta\mu) -
+n_{\mathrm{id}}(T,\mu-\delta\mu)}
+{(\mu+\delta\mu)-(\mu-\delta\mu)};
+\end{equation}
+\item computes the update
+\begin{equation}
+\Delta\mu = \frac{r}{\chi};
+\end{equation}
+\item applies damping,
+\begin{equation}
+\mu_{\mathrm{new}} = \mu - \lambda_\mu \Delta\mu,
+\end{equation}
+where $\lambda_\mu = \texttt{mu\_scf\_damping}$;
+\item clamps the result to a safe interval and repeats.
+\end{enumerate}
+
+Strictly speaking, this is a damped Newton step with a numerical derivative,
+embedded in a self-consistent loop. For that reason, the code calls it SCF,
+but mathematically it is closer to a damped Newton-Raphson inversion than to a
+pure Picard fixed-point iteration.
+
+\subsection{Outer SCF: Solving for \texorpdfstring{$(T_c,n_c)$}{(Tc,nc)}}
+
+The outer SCF appears in the function
+\texttt{solve\_critical\_point\_fixed\_y\_scf}. This solver seeks the pair
+$(T,n)$ satisfying
+\begin{align}
+G_1(T,n) &= \left(\frac{\partial P}{\partial n}\right)_T = 0, \\
+G_2(T,n) &= \left(\frac{\partial^2 P}{\partial n^2}\right)_T = 0.
+\end{align}
+
+The procedure is:
+\begin{enumerate}
+\item obtain a coarse initial seed $(T,n)$ from a grid scan;
+\item evaluate $G_1$ and $G_2$ at the current point;
+\item estimate the sensitivity of $G_1$ to $T$ using finite differences,
+\begin{equation}
+\frac{\partial G_1}{\partial T}
+\approx
+\frac{G_1(T+h_T,n)-G_1(T-h_T,n)}{2h_T};
+\end{equation}
+\item estimate the sensitivity of $G_2$ to $n$ using finite differences,
+\begin{equation}
+\frac{\partial G_2}{\partial n}
+\approx
+\frac{G_2(T,n+h_n)-G_2(T,n-h_n)}{2h_n};
+\end{equation}
+\item form damped correction steps
+\begin{align}
+\Delta T &= -\lambda_T \frac{G_1}{\partial G_1/\partial T}, \\
+\Delta n &= -\lambda_n \frac{G_2}{\partial G_2/\partial n};
+\end{align}
+\item clamp the step sizes to avoid excessive moves;
+\item run a backtracking line search and accept the trial point only if it
+reduces the normalized residual score.
+\end{enumerate}
+
+This is again SCF in the broad sense of a self-consistent outer iteration, but
+its update formula is Newton-like because it uses local slope information.
+
+\section{How the Pressure is Constructed}
+
+Once the inner loop has produced $\mu_p^\ast$ and $\mu_n^\ast$, the method
+\texttt{pressure(T,n)} evaluates:
+\begin{enumerate}
+\item proton ideal pressure $p_p(T,\mu_p^\ast)$;
+\item neutron ideal pressure $p_n(T,\mu_n^\ast)$;
+\item interaction contribution
+\begin{equation}
+p_{\mathrm{int}}(n,y) =
+-\frac{a_{\mathrm{eff}}(y)\, n^2}{(1 + cn)^2}.
+\end{equation}
+\end{enumerate}
+
+The total pressure is then
+\begin{equation}
+P(T,n;y) = p_p(T,\mu_p^\ast) + p_n(T,\mu_n^\ast) + p_{\mathrm{int}}(n,y).
+\end{equation}
+
+This is the function whose density derivatives define the critical point.
+
+\section{Numerical Derivatives Used by the Critical Solver}
+
+The method \texttt{critical\_equations(T,n)} computes the first and second
+density derivatives numerically using central differences:
+\begin{align}
+\frac{\partial P}{\partial n}
+&\approx \frac{P(T,n+h_n)-P(T,n-h_n)}{2h_n}, \\
+\frac{\partial^2 P}{\partial n^2}
+&\approx \frac{P(T,n+h_n)-2P(T,n)+P(T,n-h_n)}{h_n^2}.
+\end{align}
+
+The code checks that all three pressure evaluations exist and remain inside the
+allowed density domain. If any evaluation fails, the solver returns
+\texttt{None} for that point.
+
+\section{Seed Search Before the Outer Iteration}
+
+The function \texttt{find\_seed\_point\_fixed\_y} performs a coarse search over
+a rectangular grid in temperature and density. For each valid point it computes
+$G_1$ and $G_2$, then defines a normalized score
+\begin{equation}
+S(T,n) =
+\left(\frac{G_1}{s_1}\right)^2 +
+\left(\frac{G_2}{s_2}\right)^2,
+\end{equation}
+where $s_1$ and $s_2$ are the largest absolute values found on the coarse grid.
+
+The best seed is the point with the smallest score. This is a practical way to
+start the outer solver close enough to the critical point for the damped
+iteration to converge.
+
+\section{Control Flow of the Main Public Functions}
+
+\subsection{\texttt{compute\_fixed\_y\_critical\_point\_from\_fit\_row}}
+
+This function is the main single-case wrapper. It:
+\begin{enumerate}
+\item receives one row from a fit table;
+\item creates a \texttt{FixedYAsymmetricClausiusPressureEvaluator};
+\item calls \texttt{solve\_critical\_point\_fixed\_y\_scf};
+\item packages the returned values into a \texttt{FixedYCriticalPoint}.
+\end{enumerate}
+
+This is the function that a user should think of as ``solve one critical point
+for one fitted model at one fixed composition''.
+
+\subsection{\texttt{compute\_fixed\_y\_family\_from\_fit\_df}}
+
+This function loops over many fit rows and many proton fractions $y$. It uses a
+continuation strategy:
+\begin{itemize}
+\item if the previous $y$ value converged, the solver reuses
+$(T_c,n_c)$ as the next seed;
+\item if one point fails, the continuation seed is reset.
+\end{itemize}
+
+This helps smooth parameter sweeps across composition.
+
+\section{Settings That Control the Solver}
+
+The file \texttt{constants.py} defines the numerical settings. The most
+important ones are:
+\begin{itemize}
+\item \texttt{mu\_scf\_tol}, \texttt{mu\_scf\_max\_iter},
+\texttt{mu\_scf\_damping}, and \texttt{mu\_delta} for the inner
+$\mu^\ast$ inversion;
+\item \texttt{h\_n} and \texttt{h\_t} for finite-difference derivatives;
+\item \texttt{outer\_tol\_dPdn} and \texttt{outer\_tol\_d2Pdn2} for the final
+criticality tolerances;
+\item \texttt{outer\_damping\_t}, \texttt{outer\_damping\_n},
+\texttt{outer\_max\_step\_t}, \texttt{outer\_max\_step\_n}, and
+\texttt{outer\_min\_lambda} for the outer update and line search;
+\item \texttt{coarse\_t\_count} and \texttt{coarse\_n\_count} for the initial
+seed grid.
+\end{itemize}
+
+The settings file therefore encodes both the physical scale of the search
+window and the numerical stability rules of the algorithm.
+
+\section{Why the Code Returns \texttt{None}}
+
+The solver uses \texttt{None} to signal failure rather than forcing a result.
+Typical failure modes are:
+\begin{itemize}
+\item an excluded-volume factor becomes non-positive;
+\item a finite-difference slope is too small to be reliable;
+\item the inner inversion for $\mu^\ast$ does not converge;
+\item the line search cannot find an improving trial point;
+\item the requested point lies outside the allowed temperature or density range.
+\end{itemize}
+
+This makes the code conservative: it prefers returning no solution to returning
+a numerically dubious one.
+
+\section{Relationship to the Generic Quantum SCF Solver}
+
+The file \texttt{quantum\_tc\_nc\_scf/src/quantum\_tc\_nc\_scf/scf.py}
+contains a more generic version of the same strategy for symmetric models. The
+fixed-$y$ solver in \texttt{finite\_temperature.py} follows the same overall
+design:
+\begin{itemize}
+\item an evaluator object that computes pressure;
+\item an inner inversion from density to $\mu^\ast$;
+\item a coarse seed search;
+\item an outer damped iteration for the critical conditions.
+\end{itemize}
+
+The asymmetric fixed-$y$ solver extends this pattern by splitting the matter
+into proton and neutron sectors and by introducing the composition-dependent
+interaction coefficient.
+
+\section{Summary}
+
+The fixed-$y$ finite-temperature solver computes critical points for asymmetric
+Clausius nuclear matter using quantum Fermi statistics and nested iterative
+numerics.
+
+Its essential logic is:
+\begin{enumerate}
+\item map the physical density $n$ into proton and neutron target ideal
+densities through excluded-volume relations;
+\item invert each target density to an effective chemical potential using an
+inner damped Newton-like SCF loop;
+\item build the total pressure from proton, neutron, and interaction terms;
+\item compute the first and second density derivatives numerically;
+\item adjust $(T,n)$ with an outer damped Newton-like SCF loop until the
+criticality conditions are satisfied.
+\end{enumerate}
+
+Therefore, the answer to ``where is the SCF in the code?'' is:
+\begin{itemize}
+\item \textbf{inner SCF:} in
+\texttt{\_solve\_mu\_star\_species}, where $\mu_p^\ast$ and $\mu_n^\ast$ are
+found from target densities;
+\item \textbf{outer SCF:} in
+\texttt{solve\_critical\_point\_fixed\_y\_scf}, where $T_c$ and $n_c$ are found
+from the vanishing of $\partial P/\partial n$ and $\partial^2 P/\partial n^2$.
+\end{itemize}
+
+These two layers are the conceptual heart of the code.
+
+\end{document}

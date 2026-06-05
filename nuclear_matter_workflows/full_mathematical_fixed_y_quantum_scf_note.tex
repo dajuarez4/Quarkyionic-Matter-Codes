@@ -1,0 +1,602 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{booktabs}
+
+\title{Full Mathematical Note on the Fixed-\texorpdfstring{$y$}{y} Quantum SCF Critical-Point Solver}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document gives a fully mathematical explanation of the fixed-$y$ quantum
+critical-point solver used in \texttt{nuclear\_matter\_workflows}. It explains
+the finite-temperature physics, the meaning of the fitted Clausius parameters,
+the inner self-consistent inversion for the effective chemical potentials
+$\mu_p^\ast$ and $\mu_n^\ast$, and the outer critical-point solve for
+$T_c$ and $n_c$. A worked numerical example using the repository output for
+$K_0=280\ \mathrm{MeV}$ is included.
+\end{abstract}
+
+\tableofcontents
+
+\section{What This Solver Takes as Input}
+
+The finite-temperature fixed-$y$ solver does \emph{not} fit the interaction
+parameters. It starts from a row already produced by the zero-temperature
+asymmetric Clausius fit:
+\[
+a_n,\qquad a_{pn},\qquad b_n,\qquad b_{pn},\qquad c.
+\]
+
+So the logical order is
+\[
+\text{zero-temperature asymmetric fit}
+\quad \Longrightarrow \quad
+\text{finite-temperature fixed-}y\text{ critical solve}.
+\]
+
+The role of the fixed-$y$ solver is therefore:
+\begin{quote}
+Given one calibrated asymmetric Clausius interaction and one chosen proton
+fraction $y$, find the finite-temperature liquid-gas critical point.
+\end{quote}
+
+\section{What Is the Critical Point?}
+
+At fixed composition $y$, the solver builds the pressure as a function of
+temperature and baryon density,
+\[
+P(T,n;y).
+\]
+
+The liquid-gas critical point is defined by the standard inflection-point
+conditions
+\begin{align}
+\left(\frac{\partial P}{\partial n}\right)_T &= 0, \\
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T &= 0.
+\end{align}
+
+This is the same mathematics as the textbook van der Waals critical point.
+
+Physically:
+\begin{itemize}
+\item below $T_c$, the isotherm can have a liquid-gas coexistence structure;
+\item at $T_c$, the coexistence endpoint is reached;
+\item above $T_c$, there is no first-order liquid-gas transition.
+\end{itemize}
+
+\section{Step 1: Species Densities at Fixed Proton Fraction}
+
+The solver works at fixed proton fraction $y$, so
+\begin{align}
+n_p &= yn, \\
+n_n &= (1-y)n.
+\end{align}
+
+Only the range
+\[
+0 \le y \le 0.5
+\]
+needs to be considered, because interchanging protons and neutrons maps
+$y \leftrightarrow 1-y$.
+
+\section{Step 2: Species-Dependent Excluded Volume}
+
+The asymmetric Clausius model introduces different excluded-volume couplings for
+same-species and proton-neutron channels:
+\begin{align}
+x_p &= b_n n_p + b_{pn} n_n, \\
+x_n &= b_{pn} n_p + b_n n_n.
+\end{align}
+
+The free-volume fractions are then
+\begin{align}
+f_p &= 1-x_p, \\
+f_n &= 1-x_n.
+\end{align}
+
+These must satisfy
+\[
+f_p>0,\qquad f_n>0.
+\]
+Otherwise, the state is unphysical and the code rejects it.
+
+\subsection{Physical Meaning}
+
+This is the same excluded-volume idea as at $T=0$, but now applied separately
+to protons and neutrons.
+
+An easy analogy is a two-component gas of red and blue hard balls:
+\begin{itemize}
+\item a red ball excludes some volume from other red balls;
+\item a red ball may exclude a different effective volume from blue balls.
+\end{itemize}
+
+That is why the model distinguishes $b_n$ and $b_{pn}$.
+
+\section{Step 3: Target Ideal Densities}
+
+Because only fractions $f_p$ and $f_n$ of the volume are available, the
+corresponding ideal-gas target densities are
+\begin{align}
+n_{p,\mathrm{id}}^{\mathrm{target}} &= \frac{n_p}{f_p}, \\
+n_{n,\mathrm{id}}^{\mathrm{target}} &= \frac{n_n}{f_n}.
+\end{align}
+
+These are the densities that the finite-temperature proton and neutron Fermi
+gases must reproduce.
+
+\section{Step 4: Finite-Temperature Quantum Fermi Gas}
+
+\subsection{Fermi-Dirac Distribution}
+
+At nonzero temperature, the occupation factor is
+\begin{equation}
+f_{\mathrm{FD}}(E;\mu,T)=\frac{1}{e^{(E-\mu)/T}+1}.
+\end{equation}
+
+This replaces the sharp $T=0$ Fermi sphere.
+
+\subsection{Relativistic Dispersion Relation}
+
+The one-particle energy is
+\begin{equation}
+E(k)=\sqrt{(\hbar c\,k)^2+m_N^2}.
+\end{equation}
+
+\subsection{Ideal Density at Finite Temperature}
+
+For degeneracy $d$,
+\begin{equation}
+n_{\mathrm{id}}(T,\mu)
+=
+\frac{d}{2\pi^2}\int_0^\infty k^2 f_{\mathrm{FD}}(E;\mu,T)\,dk.
+\end{equation}
+
+\subsection{Ideal Pressure at Finite Temperature}
+
+The ideal pressure is
+\begin{equation}
+p_{\mathrm{id}}(T,\mu)
+=
+\frac{d}{6\pi^2}\int_0^\infty
+\frac{(\hbar c)^2k^4}{E(k)}f_{\mathrm{FD}}(E;\mu,T)\,dk.
+\end{equation}
+
+\subsection{Why the Solver Is Called Quantum}
+
+The finite-temperature stage is called quantum because it keeps the full
+Fermi-Dirac statistics. It is not using a classical Boltzmann gas.
+
+\subsection{Species Degeneracy}
+
+In the fixed-$y$ solver, protons and neutrons are treated separately, so each
+species uses
+\[
+d=2
+\]
+rather than $d=4$.
+
+\section{Step 5: The Inner SCF Problem}
+
+At a trial thermodynamic point $(T,n)$, the solver must determine effective
+chemical potentials $\mu_p^\ast$ and $\mu_n^\ast$ such that
+\begin{align}
+n_{\mathrm{id}}(T,\mu_p^\ast)
+&=
+n_{p,\mathrm{id}}^{\mathrm{target}}, \\
+n_{\mathrm{id}}(T,\mu_n^\ast)
+&=
+n_{n,\mathrm{id}}^{\mathrm{target}}.
+\end{align}
+
+This is the first self-consistent problem.
+
+\subsection{Write It as Root Finding}
+
+For one species, define
+\begin{equation}
+F(\mu^\ast)=n_{\mathrm{id}}(T,\mu^\ast)-n_{\mathrm{id}}^{\mathrm{target}}.
+\end{equation}
+
+The problem is to solve
+\begin{equation}
+F(\mu^\ast)=0.
+\end{equation}
+
+\subsection{Initial Guess}
+
+The code starts from a zero-temperature estimate:
+\begin{align}
+k_F &= \left(\frac{6\pi^2 n_{\mathrm{id}}^{\mathrm{target}}}{d}\right)^{1/3}, \\
+\mu_{\mathrm{seed}} &= \sqrt{(\hbar c\,k_F)^2+m_N^2}.
+\end{align}
+
+This is a natural starting point because at low temperature the finite-$T$
+chemical potential is close to the $T=0$ Fermi energy.
+
+\subsection{Newton-Like Update}
+
+The code estimates the local derivative numerically:
+\begin{equation}
+\chi(\mu)
+\approx
+\frac{n_{\mathrm{id}}(T,\mu+\delta\mu)-n_{\mathrm{id}}(T,\mu-\delta\mu)}
+{2\delta\mu}.
+\end{equation}
+
+Then the Newton-like update is
+\begin{equation}
+\mu_{\mathrm{new}}
+=
+\mu-\lambda_\mu \frac{F(\mu)}{\chi(\mu)},
+\end{equation}
+where $\lambda_\mu$ is a damping factor.
+
+\subsection{Why Damping Is Used}
+
+Pure Newton iteration can overshoot if the function is stiff or the initial
+guess is not close enough. Damping makes the method more stable.
+
+An easy analogy is walking downhill with shorter steps so that you do not jump
+past the valley.
+
+\section{Step 6: The Fixed-\texorpdfstring{$y$}{y} Pressure}
+
+Once $\mu_p^\ast$ and $\mu_n^\ast$ are known, the proton and neutron ideal
+pressures are
+\begin{align}
+p_p^{\mathrm{id}} &= p_{\mathrm{id}}(T,\mu_p^\ast), \\
+p_n^{\mathrm{id}} &= p_{\mathrm{id}}(T,\mu_n^\ast).
+\end{align}
+
+\subsection{Effective Attractive Coefficient}
+
+The asymmetric attractive coefficient at fixed $y$ is
+\begin{equation}
+C(y)
+=
+a_n\big[y^2+(1-y)^2\big]+2a_{pn}y(1-y).
+\end{equation}
+
+This is simply the pair-counting structure for the two-component system:
+\begin{itemize}
+\item $y^2$ weights proton-proton pairs;
+\item $(1-y)^2$ weights neutron-neutron pairs;
+\item $2y(1-y)$ weights proton-neutron pairs.
+\end{itemize}
+
+\subsection{Interaction Pressure}
+
+The mean-field interaction pressure is
+\begin{equation}
+P_{\mathrm{int}}(n,y)
+=
+-\frac{C(y)n^2}{(1+cn)^2}.
+\end{equation}
+
+\subsection{Total Pressure}
+
+Therefore the fixed-$y$ pressure branch is
+\begin{equation}
+P(T,n;y)
+=
+p_p^{\mathrm{id}}(T,\mu_p^\ast)
++
+p_n^{\mathrm{id}}(T,\mu_n^\ast)
+-\frac{C(y)n^2}{(1+cn)^2}.
+\end{equation}
+
+\section{Step 7: Why the Symmetric Limit Is Recovered at \texorpdfstring{$y=0.5$}{y=0.5}}
+
+At $y=0.5$,
+\[
+n_p=n_n=\frac{n}{2}.
+\]
+
+Then
+\begin{align}
+x_p &= b_n\frac{n}{2}+b_{pn}\frac{n}{2}
+= \frac{b_n+b_{pn}}{2}n
+= b_{\mathrm{avg}}n, \\
+x_n &= b_{pn}\frac{n}{2}+b_n\frac{n}{2}
+= b_{\mathrm{avg}}n.
+\end{align}
+
+So
+\[
+f_p=f_n=1-b_{\mathrm{avg}}n.
+\]
+
+For the attractive coefficient,
+\begin{align}
+C(0.5)
+&=
+a_n\left[\left(\frac12\right)^2+\left(\frac12\right)^2\right]
++2a_{pn}\left(\frac12\right)\left(\frac12\right) \\
+&=
+\frac{a_n+a_{pn}}{2}
+=
+a_{\mathrm{avg}}.
+\end{align}
+
+So the fixed-$y$ solver reduces exactly to the symmetric Clausius branch.
+
+\section{Step 8: The Outer Critical-Point Problem}
+
+The second self-consistent problem is to solve
+\begin{align}
+G_1(T,n) &= \left(\frac{\partial P}{\partial n}\right)_T = 0, \\
+G_2(T,n) &= \left(\frac{\partial^2 P}{\partial n^2}\right)_T = 0.
+\end{align}
+
+\subsection{Numerical First Derivative}
+
+The code evaluates
+\begin{equation}
+\left(\frac{\partial P}{\partial n}\right)_T
+\approx
+\frac{P(T,n+h_n)-P(T,n-h_n)}{2h_n}.
+\end{equation}
+
+\subsection{Numerical Second Derivative}
+
+It also evaluates
+\begin{equation}
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T
+\approx
+\frac{P(T,n+h_n)-2P(T,n)+P(T,n-h_n)}{h_n^2}.
+\end{equation}
+
+\subsection{Seed Search}
+
+Before iterating, the solver scans a coarse rectangular grid in $(T,n)$ and
+computes a normalized score
+\begin{equation}
+S(T,n)=\left(\frac{G_1}{s_1}\right)^2+\left(\frac{G_2}{s_2}\right)^2,
+\end{equation}
+where $s_1$ and $s_2$ are characteristic scales obtained from the scan.
+
+The point with the smallest score is used as the initial seed.
+
+\subsection{Outer Newton-Like Update}
+
+The update equations are
+\begin{align}
+\Delta T
+&=
+-\lambda_T \frac{G_1}{\partial G_1/\partial T}, \\
+\Delta n
+&=
+-\lambda_n \frac{G_2}{\partial G_2/\partial n},
+\end{align}
+where the denominator derivatives are also estimated numerically.
+
+The trial step is then damped, clamped to a safe maximum size, and checked
+through a backtracking line search.
+
+\subsection{Why Two SCF Layers Exist}
+
+This solver contains two nested iterative layers:
+\begin{itemize}
+\item the inner one solves $(\mu_p^\ast,\mu_n^\ast)$ at fixed $(T,n)$;
+\item the outer one solves $(T_c,n_c)$ using the pressure built from the inner
+solution.
+\end{itemize}
+
+\section{Worked Example: \texorpdfstring{$K_0=280$}{K0=280}, \texorpdfstring{$y=0.3$}{y=0.3}}
+
+Take the fitted interaction
+\begin{align}
+a_n &= 250.33652601237475\ \mathrm{MeV\ fm}^3, \\
+a_{pn} &= 658.4888689143987\ \mathrm{MeV\ fm}^3, \\
+b_n &= 1.417423248321993\ \mathrm{fm}^3, \\
+b_{pn} &= 2.455476198790412\ \mathrm{fm}^3, \\
+c &= 4.11410812010825\ \mathrm{fm}^3.
+\end{align}
+
+For this interaction and $y=0.3$, the solver finds
+\begin{align}
+T_c &= 14.063530458374572\ \mathrm{MeV}, \\
+n_c &= 0.048943415460203074\ \mathrm{fm}^{-3}, \\
+P_c &= 0.2110688843825943\ \mathrm{MeV\ fm}^{-3}, \\
+\mu_p^\ast &= 934.7468901046402\ \mathrm{MeV}, \\
+\mu_n^\ast &= 950.2022651752985\ \mathrm{MeV}.
+\end{align}
+
+\subsection{Species Densities}
+
+Compute
+\begin{align}
+n_p &= yn_c = (0.3)(0.048943415460203074)
+= 0.014683024638060921\ \mathrm{fm}^{-3}, \\
+n_n &= (1-y)n_c = (0.7)(0.048943415460203074)
+= 0.03426039082214215\ \mathrm{fm}^{-3}.
+\end{align}
+
+\subsection{Excluded-Volume Factors}
+
+Then
+\begin{align}
+x_p
+&=
+b_n n_p + b_{pn} n_n \\
+&=
+(1.417423248321993)(0.014683024638060921)
++(2.455476198790412)(0.03426039082214215) \\
+&=
+0.10493763470269968,
+\end{align}
+and
+\begin{align}
+x_n
+&=
+b_{pn} n_p + b_n n_n \\
+&=
+(2.455476198790412)(0.014683024638060921)
++(1.417423248321993)(0.03426039082214215) \\
+&=
+0.08461529197291352.
+\end{align}
+
+So
+\begin{align}
+f_p &= 1-x_p = 0.8950623652973003, \\
+f_n &= 1-x_n = 0.9153847080270865.
+\end{align}
+
+\subsection{Ideal Target Densities}
+
+The inner SCF therefore must solve for chemical potentials such that
+\begin{align}
+n_{p,\mathrm{id}}^{\mathrm{target}}
+&=
+\frac{n_p}{f_p}
+=
+\frac{0.014683024638060921}{0.8950623652973003}
+=
+0.016404471026087514\ \mathrm{fm}^{-3},
+\end{align}
+and
+\begin{align}
+n_{n,\mathrm{id}}^{\mathrm{target}}
+&=
+\frac{n_n}{f_n}
+=
+\frac{0.03426039082214215}{0.9153847080270865}
+=
+0.03742731391699016\ \mathrm{fm}^{-3}.
+\end{align}
+
+\subsection{Effective Attractive Coefficient}
+
+At $y=0.3$,
+\begin{align}
+C(0.3)
+&=
+a_n(0.3^2+0.7^2)+2a_{pn}(0.3)(0.7) \\
+&=
+a_n(0.58)+a_{pn}(0.42) \\
+&=
+(250.33652601237475)(0.58)
++(658.4888689143987)(0.42) \\
+&=
+421.76051003122484\ \mathrm{MeV\ fm}^3.
+\end{align}
+
+\subsection{Interaction Pressure}
+
+The attractive pressure contribution is
+\begin{align}
+P_{\mathrm{int}}
+&=
+-\frac{C(0.3)n_c^2}{(1+cn_c)^2} \\
+&=
+-\frac{(421.76051003122484)(0.048943415460203074)^2}
+{\big(1+(4.11410812010825)(0.048943415460203074)\big)^2} \\
+&=
+-0.7000179980681587\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+Since
+\[
+P_c=0.2110688843825943\ \mathrm{MeV\ fm}^{-3},
+\]
+the total ideal-gas proton-plus-neutron contribution must be
+\begin{align}
+p_p^{\mathrm{id}}+p_n^{\mathrm{id}}
+&=
+P_c-P_{\mathrm{int}} \\
+&=
+0.2110688843825943-(-0.7000179980681587) \\
+&=
+0.911086882450753\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+So the final critical pressure is the result of a competition between:
+\begin{itemize}
+\item positive quantum ideal-gas pressure;
+\item negative mean-field attraction.
+\end{itemize}
+
+\section{Worked Symmetric Check: \texorpdfstring{$K_0=280$}{K0=280}, \texorpdfstring{$y=0.5$}{y=0.5}}
+
+For the same interaction at $y=0.5$, the solver gives
+\begin{align}
+T_c &= 16.4817165975974\ \mathrm{MeV}, \\
+n_c &= 0.0520814359187431\ \mathrm{fm}^{-3}, \\
+P_c &= 0.261959538318564\ \mathrm{MeV\ fm}^{-3}.
+\end{align}
+
+At $y=0.5$,
+\[
+n_p=n_n=\frac{n_c}{2}.
+\]
+Then
+\begin{align}
+x_p &= x_n = b_{\mathrm{avg}}n_c
+=
+(1.9364497235562026)(0.0520814359187431) \\
+&=
+0.10085308218726015,
+\end{align}
+so
+\[
+f_p=f_n=0.8991469178127398.
+\]
+
+Also
+\[
+C(0.5)=a_{\mathrm{avg}}=454.41269746338673\ \mathrm{MeV\ fm}^3.
+\]
+
+Therefore the fixed-$y$ formulas reduce exactly to the symmetric formulas, as
+required by the construction of the asymmetric fit.
+
+\section{Summary}
+
+The fixed-$y$ quantum SCF solver does the following:
+\begin{enumerate}
+\item read a fitted asymmetric Clausius interaction;
+\item split the total density into proton and neutron sectors at fixed $y$;
+\item compute species free-volume factors $f_p$ and $f_n$;
+\item convert the physical species densities into target ideal densities;
+\item solve for $\mu_p^\ast$ and $\mu_n^\ast$ through an inner damped
+Newton-like SCF loop;
+\item build the full pressure branch
+\[
+P(T,n;y)=p_p^{\mathrm{id}}+p_n^{\mathrm{id}}-\frac{C(y)n^2}{(1+cn)^2};
+\]
+\item solve the critical-point equations
+\[
+\left(\frac{\partial P}{\partial n}\right)_T=0,
+\qquad
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T=0
+\]
+through an outer damped SCF loop.
+\end{enumerate}
+
+So the fixed-$y$ solver is mathematically a nested self-consistent problem:
+\[
+(T,n)
+\Longrightarrow
+(n_p,n_n)
+\Longrightarrow
+(f_p,f_n)
+\Longrightarrow
+(\mu_p^\ast,\mu_n^\ast)
+\Longrightarrow
+P(T,n;y)
+\Longrightarrow
+(T_c,n_c).
+\]
+
+\end{document}

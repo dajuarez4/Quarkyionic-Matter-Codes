@@ -1,0 +1,507 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{booktabs}
+
+\title{Technical Description of the Asymmetric Clausius Constraint Analysis}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document explains, in plain technical English, what the asymmetric
+Clausius constraint analysis does in the
+\texttt{nuclear\_matter\_workflows} repository, how the physics is encoded in
+the code, which empirical constraints are imposed, and how those constraints
+are introduced numerically. The main target is the zero-temperature fitting
+workflow in
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/solver.py},
+which determines the asymmetric Clausius interaction parameters
+$a_n$, $a_{pn}$, $b_n$, $b_{pn}$, and $c$ from saturation and symmetry-energy
+constraints. The document also explains how the resulting fit table is used as
+input for the fixed-$y$ quantum critical-point solver and for the quarkyonic
+equation-of-state workflow.
+\end{abstract}
+
+\section{Purpose of the Code}
+
+The asymmetric Clausius constraint analysis is the upstream parameter-fitting
+stage for several later workflows in this repository.
+
+Its purpose is to construct a family of asymmetric nuclear-matter equations of
+state that:
+\begin{itemize}
+\item reproduce standard symmetric-matter saturation properties;
+\item span an empirical window of incompressibility values $K_0$;
+\item reproduce the symmetry energy $J$ at saturation;
+\item reproduce the symmetry-energy slope $L$ at saturation.
+\end{itemize}
+
+The output of the workflow is therefore not a critical point by itself. Rather,
+it is a table of interaction parameters for asymmetric Clausius matter, one row
+for each target value of $K_0$. Those fitted parameters are then used by the
+finite-temperature fixed-$y$ solver and by the quarkyonic EOS workflow.
+
+\section{Relevant Files}
+
+The main files involved in this workflow are listed in
+Table~\ref{tab:files}.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.42\textwidth} >{\raggedright\arraybackslash}p{0.48\textwidth}}
+\toprule
+File & Role \\
+\midrule
+\texttt{notebooks/asymmetric\_clausius\_constraint\_analysis.ipynb} & Main notebook for the zero-temperature constraint analysis, tables, and plots. \\
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/constants.py} & Physical constants, empirical targets, and numerical scan settings. \\
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/fermi\_gas.py} & Relativistic ideal Fermi-gas relations at $T=0$. \\
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/solver.py} & Core solver for symmetric Clausius matter, asymmetric splitting, and constraint enforcement. \\
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/finite\_temperature.py} & Downstream fixed-$y$ quantum critical-point workflow that consumes the fitted parameter table. \\
+\texttt{asymmetric\_clausius\_fit/src/asymmetric\_clausius\_fit/quarkyonic.py} & Downstream quarkyonic EOS workflow that also consumes the fitted parameter table. \\
+\texttt{results/asymmetric\_clausius\_fit\_results.csv} & Main output table of fitted asymmetric Clausius parameters and constraint residuals. \\
+\bottomrule
+\end{tabular}
+\caption{Core files used by the asymmetric Clausius constraint analysis.}
+\label{tab:files}
+\end{table}
+
+\section{High-Level Workflow}
+
+At a high level, the analysis proceeds as follows:
+
+\begin{enumerate}
+\item Choose a target incompressibility $K_0$ in the empirical window.
+\item Solve the \emph{symmetric} Clausius model at saturation and determine the
+common parameter $c$ that reproduces the chosen $K_0$.
+\item At that same symmetric point, recover the corresponding average
+parameters $a_{\mathrm{avg}}$ and $b_{\mathrm{avg}}$.
+\item Split those averages into asymmetric interaction parameters
+$a_n$, $a_{pn}$, $b_n$, and $b_{pn}$.
+\item Adjust the attractive split so that the symmetry energy satisfies
+$J = S(n_0)$.
+\item Adjust the excluded-volume split so that the symmetry slope satisfies
+$L = 3 n_0 \, dS/dn|_{n_0}$, while re-solving the attractive split to keep
+$J$ fixed.
+\item Save the resulting parameter set and diagnostic residuals.
+\end{enumerate}
+
+This means that the workflow has a clear nested structure:
+\begin{itemize}
+\item a symmetric saturation solve;
+\item a scan in the common Clausius parameter $c$ to match $K_0$;
+\item an asymmetric splitting solve to match $J$ and $L$.
+\end{itemize}
+
+\section{Physics Model}
+
+\subsection{Symmetric Clausius Matter}
+
+For symmetric Clausius matter, the code uses the same basic structure as the
+existing ground-state workflow:
+\begin{align}
+f(n) &= 1 - b n, \\
+n_{\mathrm{id}} &= \frac{n}{f(n)}, \\
+\epsilon(n) &= f(n)\,\epsilon_{\mathrm{id}}(n_{\mathrm{id}})
+- \frac{a n^2}{1 + c n}, \\
+P(n) &= p_{\mathrm{id}}(n_{\mathrm{id}})
+- \frac{a n^2}{(1 + c n)^2}.
+\end{align}
+
+Here:
+\begin{itemize}
+\item $b$ controls the excluded-volume correction;
+\item $a$ controls the strength of the attraction;
+\item $c$ modifies the density dependence of the attractive Clausius term.
+\end{itemize}
+
+The ideal-gas energy density and pressure are evaluated with relativistic
+zero-temperature Fermi-gas expressions.
+
+\subsection{Asymmetric Clausius Matter}
+
+For asymmetric matter, the total baryon density is split into proton and
+neutron sectors:
+\begin{align}
+n &= n_p + n_n, \\
+n_p &= y n, \\
+n_n &= (1-y)n,
+\end{align}
+where $y$ is the proton fraction.
+
+The excluded-volume structure is made species-dependent:
+\begin{align}
+x_p &= b_n n_p + b_{pn} n_n, \\
+x_n &= b_{pn} n_p + b_n n_n,
+\end{align}
+with free-volume factors
+\begin{align}
+f_p &= 1 - x_p, \\
+f_n &= 1 - x_n.
+\end{align}
+
+If either $f_p \le 0$ or $f_n \le 0$, the state is rejected as unphysical.
+
+The asymmetric Clausius energy density is then
+\begin{equation}
+\epsilon(n,y)
+= f_p \, \epsilon^{\mathrm{id}}_p\!\left(\frac{n_p}{f_p}\right)
++ f_n \, \epsilon^{\mathrm{id}}_n\!\left(\frac{n_n}{f_n}\right)
+- \frac{a_n(n_p^2+n_n^2) + 2 a_{pn} n_p n_n}{1 + c n}.
+\end{equation}
+
+This means that the code distinguishes:
+\begin{itemize}
+\item same-species couplings through $a_n$ and $b_n$;
+\item proton-neutron couplings through $a_{pn}$ and $b_{pn}$;
+\item a common Clausius denominator parameter $c$ shared by all channels.
+\end{itemize}
+
+\section{Empirical Constraints}
+
+The entire purpose of the analysis is to impose a specific set of physical
+constraints.
+
+\subsection{Symmetric Saturation Constraints}
+
+The symmetric sector is forced to reproduce the standard saturation point:
+\begin{align}
+n_0 &= 0.16 \ \mathrm{fm}^{-3}, \\
+\left.\frac{E}{A} - m\right|_{n_0} &= -16 \ \mathrm{MeV}, \\
+P(n_0) &= 0.
+\end{align}
+
+These conditions determine the symmetric Clausius parameters at fixed $c$.
+Operationally:
+\begin{itemize}
+\item the zero-pressure condition is used to express $a$ in terms of $b$ and
+$c$;
+\item the binding-energy condition is then used to solve for $b$.
+\end{itemize}
+
+\subsection{Incompressibility Constraint}
+
+The incompressibility is defined as
+\begin{equation}
+K_0 = 9 \left.\frac{dP}{dn}\right|_{n_0}.
+\end{equation}
+
+In this workflow, $K_0$ is the control parameter. The code scans over the
+common Clausius parameter $c$ and keeps the value that makes the symmetric
+solution reproduce the chosen target $K_0$.
+
+The default target set is
+\[
+K_0 = 250,\ 260,\ 270,\ 280,\ 290,\ 300,\ 310,\ 315 \ \mathrm{MeV}.
+\]
+
+\subsection{Symmetry-Energy Constraint}
+
+The code adopts the parabolic symmetry-energy convention
+\begin{equation}
+S(n) = E_{\mathrm{PNM}}(n) - E_{\mathrm{SNM}}(n),
+\end{equation}
+where:
+\begin{itemize}
+\item PNM means pure neutron matter, corresponding to $y=0$;
+\item SNM means symmetric nuclear matter, corresponding to $y=0.5$.
+\end{itemize}
+
+The symmetry energy at saturation is then
+\begin{equation}
+J = S(n_0).
+\end{equation}
+
+The target value used by the code is
+\[
+J = 32.5 \ \mathrm{MeV}.
+\]
+
+\subsection{Symmetry-Slope Constraint}
+
+The symmetry-energy slope is defined as
+\begin{equation}
+L = 3 n_0 \left.\frac{dS}{dn}\right|_{n_0}.
+\end{equation}
+
+The target value used by the code is
+\[
+L = 58.9 \ \mathrm{MeV}.
+\]
+
+\section{How the Constraints Are Introduced}
+
+This is the most important conceptual part of the workflow.
+
+\subsection{Step 1: Solve the Symmetric Problem at Fixed \texorpdfstring{$c$}{c}}
+
+For a chosen $c$, the code:
+\begin{enumerate}
+\item computes the symmetric ideal density at $n_0$;
+\item uses the zero-pressure condition to recover $a(b,c)$;
+\item solves the binding-energy condition to determine $b$;
+\item computes the resulting symmetric point and its $K_0$ value.
+\end{enumerate}
+
+If the excluded-volume fraction becomes non-positive, or if the scan in $b$
+does not produce a valid sign change for the binding residual, that trial point
+is discarded.
+
+\subsection{Step 2: Use \texorpdfstring{$K_0$}{K0} to Fix the Common Clausius Parameter}
+
+Once the symmetric point exists for a given $c$, the code computes
+\[
+K_0(c) = 9 \left.\frac{dP}{dn}\right|_{n_0}.
+\]
+
+The solver then scans the interval
+\[
+0 \le c \le 4.74 \ \mathrm{fm}^3
+\]
+and looks for a sign change in
+\[
+K_0(c) - K_0^{\mathrm{target}}.
+\]
+
+When such a bracket is found, a bisection solve returns the value of $c$ that
+reproduces the requested incompressibility.
+
+\subsection{Step 3: Introduce Asymmetry Through Average-and-Split Variables}
+
+After the symmetric point has been determined, the asymmetric parameters are
+constructed from average and split variables:
+\begin{align}
+a_n &= a_{\mathrm{avg}} - \Delta a, \\
+a_{pn} &= a_{\mathrm{avg}} + \Delta a, \\
+b_n &= b_{\mathrm{avg}} - \Delta b, \\
+b_{pn} &= b_{\mathrm{avg}} + \Delta b.
+\end{align}
+
+This is a deliberate modeling choice:
+\begin{itemize}
+\item the symmetric saturation fit fixes the averages;
+\item the isovector information is carried by the splits $\Delta a$ and
+$\Delta b$;
+\item the Clausius parameter $c$ is left common to all channels.
+\end{itemize}
+
+\subsection{Step 4: Solve \texorpdfstring{$\Delta a$}{Delta a} from the \texorpdfstring{$J$}{J} Constraint}
+
+For a given trial $\Delta b$, the code scans $\Delta a$ and evaluates
+\[
+J(\Delta a,\Delta b) - J_{\mathrm{target}}.
+\]
+
+This means that the attractive split is used to tune the symmetry energy at
+saturation. If the resulting parameters make any of
+$a_n$, $a_{pn}$, $b_n$, or $b_{pn}$ non-positive, the trial point is discarded.
+
+\subsection{Step 5: Solve \texorpdfstring{$\Delta b$}{Delta b} from the \texorpdfstring{$L$}{L} Constraint}
+
+The code then scans $\Delta b$. For each trial $\Delta b$:
+\begin{enumerate}
+\item it first re-solves $\Delta a$ so that $J$ remains fixed;
+\item it computes the resulting $L$ value;
+\item it looks for a sign change in
+\[
+L(\Delta a(\Delta b),\Delta b) - L_{\mathrm{target}}.
+\]
+\end{enumerate}
+
+Once a bracket is found, a bisection solve returns the final $\Delta b$, and
+then $\Delta a$ is solved once more at that final value.
+
+So the hierarchy of constraints is:
+\begin{itemize}
+\item $K_0$ fixes the common Clausius parameter $c$;
+\item $J$ fixes the attractive split $\Delta a$;
+\item $L$ fixes the excluded-volume split $\Delta b$, with $J$ enforced at each
+step.
+\end{itemize}
+
+\section{Numerical Structure of the Solver}
+
+The code uses simple local numerical routines rather than external libraries.
+
+\subsection{Bracketing and Bisection}
+
+All major constraints are imposed through sign-change scans followed by
+bisection:
+\begin{itemize}
+\item the symmetric binding residual is bracketed in $b$;
+\item the incompressibility residual is bracketed in $c$;
+\item the $J$ residual is bracketed in $\Delta a$;
+\item the $L$ residual is bracketed in $\Delta b$.
+\end{itemize}
+
+This makes the algorithm robust and easy to interpret physically.
+
+\subsection{Numerical Derivatives}
+
+Two derivative-based quantities are evaluated numerically:
+\begin{align}
+K_0 &= 9 \left.\frac{dP}{dn}\right|_{n_0}, \\
+L &= 3 n_0 \left.\frac{dS}{dn}\right|_{n_0}.
+\end{align}
+
+The derivatives are computed with local finite differences using step sizes
+stored in the constants file.
+
+\subsection{Saturation Check}
+
+After a symmetric solution has been built, the code performs an additional
+consistency check by minimizing
+\[
+\frac{E}{A} - m
+\]
+in a window around saturation. This returns:
+\begin{itemize}
+\item the numerical saturation density $n_{\mathrm{sat}}$;
+\item the corresponding energy per particle;
+\item the pressure at the minimum.
+\end{itemize}
+
+These values are stored in the output table as diagnostics.
+
+\section{Control Flow of the Main Public Functions}
+
+\subsection{\texttt{symmetric\_clausius\_point\_from\_c}}
+
+This function solves the symmetric Clausius model at fixed $c$ and returns the
+corresponding symmetric point. It is the building block for all later stages.
+
+\subsection{\texttt{find\_c\_for\_target\_k0}}
+
+This function scans the Clausius parameter $c$ and finds the value that
+reproduces the requested incompressibility.
+
+\subsection{\texttt{fit\_asymmetric\_clausius\_target}}
+
+This is the main single-case solver. It:
+\begin{enumerate}
+\item fixes $c$ from the target $K_0$;
+\item reconstructs the symmetric point and its average parameters;
+\item solves the asymmetric splits from $J$ and $L$;
+\item packages the full result, including residuals and diagnostics.
+\end{enumerate}
+
+This is the function that a user should think of as
+``fit one asymmetric Clausius EOS for one target incompressibility''.
+
+\subsection{\texttt{compute\_target\_family}}
+
+This function simply repeats the single-case fit across the full list of target
+$K_0$ values and returns a family of fitted asymmetric Clausius models.
+
+\section{What the Output Table Contains}
+
+The main output CSV stores, for each target $K_0$:
+\begin{itemize}
+\item the common Clausius parameter $c$;
+\item the symmetric averages $a_{\mathrm{avg}}$ and $b_{\mathrm{avg}}$;
+\item the asymmetric parameters $a_n$, $a_{pn}$, $b_n$, and $b_{pn}$;
+\item the ratios $a_{pn}/a_n$ and $b_{pn}/b_n$;
+\item the recovered values of $J$, $L$, and $K_0$;
+\item the residuals relative to the target constraints;
+\item saturation diagnostics such as $n_{\mathrm{sat}}$ and $p_{\mathrm{sat}}$.
+\end{itemize}
+
+This makes it easy to check both the physics and the numerical quality of the
+fit.
+
+\section{How the Fitted Parameters Are Used Later}
+
+The asymmetric Clausius constraint analysis is not an isolated calculation. It
+feeds directly into later physics workflows.
+
+\subsection{Fixed-\texorpdfstring{$y$}{y} Quantum Critical Points}
+
+The file \texttt{finite\_temperature.py} reads one row of the fit table and
+uses the fitted parameters
+\[
+(a_n,\ a_{pn},\ b_n,\ b_{pn},\ c)
+\]
+to build the finite-temperature pressure at fixed proton fraction $y$.
+
+That downstream solver then computes the quantum critical point
+\[
+(T_c,\ n_c,\ P_c)
+\]
+from the conditions
+\[
+\left(\frac{\partial P}{\partial n}\right)_T = 0,
+\qquad
+\left(\frac{\partial^2 P}{\partial n^2}\right)_T = 0.
+\]
+
+So the asymmetric constraint analysis provides the interaction input for the
+SCF solver described in the separate fixed-$y$ quantum note.
+
+\subsection{Quarkyonic EOS Construction}
+
+The file \texttt{quarkyonic.py} also consumes the fitted table. It converts the
+parameters from fm/MeV units to GeV-based units and uses them to construct the
+hadronic part of the quarkyonic EOS.
+
+In that sense, the asymmetric Clausius fit is the hadronic calibration stage
+for the quarkyonic calculation.
+
+\section{Why the Code Rejects Some Trial Points}
+
+The solver returns \texttt{None} when a trial state is unphysical or numerically
+unsafe. Typical failure modes are:
+\begin{itemize}
+\item the excluded-volume fraction becomes non-positive;
+\item the Clausius denominator $1 + c n$ becomes non-positive;
+\item no sign-change bracket is found for one of the required residuals;
+\item one of the split parameters becomes non-positive.
+\end{itemize}
+
+This makes the workflow conservative. It prefers discarding an invalid trial
+point to forcing a parameter set with poor physical meaning.
+
+\section{Summary}
+
+The asymmetric Clausius constraint analysis is the zero-temperature fitting
+stage that calibrates asymmetric nuclear-matter interactions before any
+finite-temperature or quarkyonic calculation is performed.
+
+Its essential logic is:
+\begin{enumerate}
+\item solve symmetric Clausius matter at saturation;
+\item use the common Clausius parameter $c$ to match the target
+incompressibility $K_0$;
+\item split the symmetric averages into same-species and proton-neutron
+interaction parameters;
+\item tune the attractive split to reproduce $J$;
+\item tune the excluded-volume split to reproduce $L$ while keeping $J$ fixed;
+\item store the resulting parameter family for downstream workflows.
+\end{enumerate}
+
+Therefore, the answer to
+``what are the constraints and how are they introduced?'' is:
+\begin{itemize}
+\item \textbf{symmetric saturation constraints:}
+$P(n_0)=0$ and $(E/A-m)|_{n_0}=-16\ \mathrm{MeV}$ fix the symmetric point at
+fixed $c$;
+\item \textbf{incompressibility constraint:}
+$K_0$ fixes the common Clausius parameter $c$;
+\item \textbf{symmetry-energy constraint:}
+$J=S(n_0)$ fixes the attractive split $\Delta a$;
+\item \textbf{symmetry-slope constraint:}
+$L=3n_0\,dS/dn|_{n_0}$ fixes the excluded-volume split $\Delta b$.
+\end{itemize}
+
+These constraints are the conceptual heart of the asymmetric Clausius fitting
+workflow, and the resulting parameter table is the bridge to both the
+finite-temperature SCF critical-point analysis and the quarkyonic EOS
+construction.
+
+\end{document}
