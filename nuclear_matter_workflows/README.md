@@ -11,10 +11,6 @@ internal logic:
 - `quarkyonic_sound_speed_vs2/`
   Quarkyonic zero-temperature sound-speed workflow for `v_s^2(n/n_0)`.
 
-## Important
-
-These are copies of the working packages. Their internal workflow was not
-modified.
 
 ## Combined notebook
 
